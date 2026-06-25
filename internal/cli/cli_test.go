@@ -53,9 +53,16 @@ func TestRunUnknownServiceExits2(t *testing.T) {
 }
 
 // TestRunUnknownSubcommandExits2 confirms labctl <service> <unknown-cmd> exits exitUsage.
+// Manifests live under <configDir>/services/, so the radarr.yaml is placed there
+// to ensure "radarr" is actually registered as a service command before we ask for
+// a non-existent subcommand.
 func TestRunUnknownSubcommandExits2(t *testing.T) {
 	dir := t.TempDir()
-	manifest := []byte(`
+	svcDir := filepath.Join(dir, "services")
+	if err := os.MkdirAll(svcDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	svcManifest := []byte(`
 name: radarr
 base_url: http://localhost
 auth:
@@ -65,7 +72,7 @@ commands:
     method: GET
     path: /api/v3/movie
 `)
-	if err := os.WriteFile(filepath.Join(dir, "radarr.yaml"), manifest, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(svcDir, "radarr.yaml"), svcManifest, 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("LABCTL_CONFIG_DIR", dir)

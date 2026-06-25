@@ -119,6 +119,15 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 		Use:   svc.Name,
 		Short: svc.Description,
 		Long:  serviceHelp(svc, cmds),
+		// RunE is invoked when cobra cannot find a matching subcommand (e.g.
+		// "labctl radarr bogus-cmd"). Any argument here is an unknown command,
+		// so return a usageError (exit 2) instead of printing help and exiting 0.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return &usageError{fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())}
+			}
+			return cmd.Help()
+		},
 	}
 
 	// Named commands.
