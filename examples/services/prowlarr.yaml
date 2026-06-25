@@ -1,0 +1,26 @@
+name: prowlarr
+description: Prowlarr v1 (indexers)
+base_url: https://prowlarr.lilbro.cloud
+env_prefix: PROWLARR
+
+auth:
+  strategy: header-key
+  header: X-Api-Key
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    ref: "op://homelab/Prowlarr/api_key"
+    env: PROWLARR_API_KEY
+
+commands:
+  status:
+    help: server appName + version
+    method: GET
+    path: /api/v1/system/status
+    output: { filter: "{appName,version,instanceName,isProduction}" }
+  list:
+    help: configured indexers
+    method: GET
+    path: /api/v1/indexer
+    output: { filter: "map({id,name,enable,protocol,priority,appProfileId})" }

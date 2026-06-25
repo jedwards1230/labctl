@@ -1,0 +1,196 @@
+# Release labctl on push to main. Opt-in via a semver:* label on the merged PR
+# (no label → no release). The detect job reads the label, the shared
+# ai-release.yml computes the version/tag and AI release notes (create_release:
+# false), then build cross-compiles static binaries from the tagged ref and the
+# release job publishes the GitHub Release with the binaries + AI body.
+name: Release
+
+run-name: >-
+  ${{
+    github.event_name == 'workflow_dispatch'
+      && format('Release: {0}{1}', inputs.dry_run && 'dry-run ' || '', inputs.bump_type)
+      || format('Release: {0}', github.event.head_commit.message || github.sha)
+  }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      dry_run:
+        description: "Compute version + preview notes without tagging or publishing"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  detect:
+    name: Detect bump type
+    runs-on: ubuntu-latest
+    outputs:
+      bump_type: ${{ steps.bump.outputs.type }}
+      release: ${{ steps.bump.outputs.release }}
+      dry_run: ${{ steps.bump.outputs.dry_run }}
+    steps:
+      - name: Determine bump type
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.bump_type }}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # push event: opt-in via the merged PR's semver:* label. No label → no release.
+          LABELS=""
+          for attempt in 1 2 3; do
+            LABELS=$(gh pr list --state merged --base main --limit 100 \
+              --json labels,mergeCommit \
+              | jq -r --arg sha "$GITHUB_SHA" \
+                '.[] | select(.mergeCommit.oid == $sha) | .labels[].name' 2>/dev/null || echo "")
+            [ -n "$LABELS" ] && break
+            echo "Attempt ${attempt}: no labels for ${GITHUB_SHA}, retrying in 5s..."
+            sleep 5
+          done
+          echo "Labels: ${LABELS:-<none>}"
+
+          if echo "$LABELS" | grep -q 'semver:major'; then
+            echo "type=major" >> "$GITHUB_OUTPUT"; echo "release=true" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | grep -q 'semver:minor'; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"; echo "release=true" >> "$GITHUB_OUTPUT"
+          elif echo "$LABELS" | grep -q 'semver:patch'; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"; echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No semver:* label — skipping release."
+            echo "type=none" >> "$GITHUB_OUTPUT"; echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "dry_run=false" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    name: Tag & Generate Notes
+    needs: [detect]
+    if: needs.detect.outputs.release == 'true'
+    uses: jedwards1230/release-workflows/.github/workflows/ai-release.yml@v1
+    with:
+      service_name: labctl
+      service_description: "a manifest-driven CLI for homelab service APIs"
+      bump_type: ${{ needs.detect.outputs.bump_type }}
+      create_release: false
+      dry_run: ${{ needs.detect.outputs.dry_run == 'true' }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  build:
+    name: Build static binaries
+    needs: [detect, prepare]
+    if: needs.detect.outputs.release == 'true' && needs.detect.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          out="labctl-${GOOS}-${GOARCH}"
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$out" .
+          sha256sum "$out" > "$out.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: labctl-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            labctl-${{ matrix.goos }}-${{ matrix.goarch }}
+            labctl-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+
+  release:
+    name: Create GitHub Release
+    needs: [detect, prepare, build]
+    if: needs.detect.outputs.release == 'true' && needs.detect.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compose release body (install snippet + AI notes)
+        env:
+          BODY_B64: ${{ needs.prepare.outputs.release_body }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "$BODY_B64" | base64 -d > /tmp/ai_body.md
+          {
+            echo "## Install"
+            echo ""
+            echo '```bash'
+            echo "go install github.com/jedwards1230/labctl@${VERSION}"
+            echo '```'
+            echo ""
+            echo "Or download a static binary for your platform below."
+            echo ""
+            echo "---"
+            echo ""
+          } > /tmp/release_body.md
+          cat /tmp/ai_body.md >> /tmp/release_body.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Release ${{ needs.prepare.outputs.version }}
+          body_path: /tmp/release_body.md
+          files: dist/*
+          make_latest: true
+
+      - name: Write summary
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUMP_TYPE: ${{ needs.detect.outputs.bump_type }}
+        run: |
+          {
+            echo "## Release ${TAG}"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Version | ${VERSION} |"
+            echo "| Bump | ${BUMP_TYPE} |"
+          } >> "$GITHUB_STEP_SUMMARY"

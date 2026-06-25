@@ -1,0 +1,32 @@
+name: tdarr
+description: Tdarr distributed transcoding (LAN-only, no auth)
+base_url: https://tdarr.lilbro.cloud
+env_prefix: TDARR
+
+auth: { strategy: none }
+
+commands:
+  status:
+    help: server version + uptime
+    method: GET
+    path: /api/v2/status
+    output: { filter: "{status,version,isProduction,os,uptimeSec:.uptime}" }
+  nodes:
+    help: node summary (workers, queue length)
+    method: GET
+    path: /api/v2/get-nodes
+    output:
+      filter: "to_entries|map({nodeId:.key,nodeName:.value.nodeName,paused:.value.nodePaused,workers:(.value.workers//{}|length)})"
+  libraries:
+    help: list libraries
+    method: POST
+    path: /api/v2/cruddb
+    body: '{"data":{"collection":"LibrarySettingsJSONDB","mode":"getAll"}}'
+    output: { filter: "map({_id,name,folder,priority})" }
+  stats:
+    help: transcode / health-check totals
+    method: POST
+    path: /api/v2/cruddb
+    body: '{"data":{"collection":"StatisticsJSONDB","mode":"getById","docID":"statistics"}}'
+    output:
+      filter: "{totalFiles:.totalFileCount,totalTranscodes:.totalTranscodeCount,totalHealthChecks:.totalHealthCheckCount}"

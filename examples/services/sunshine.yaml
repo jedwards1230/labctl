@@ -1,0 +1,65 @@
+# Phase-0 schema proof: the single-call commands (apps/clients/config/version)
+# execute today over http+basic; the composed `status` (multi-endpoint + XML)
+# lands with the pipeline engine in a later phase.
+name: sunshine
+description: Sunshine GameStream host (desktop-1)
+base_url: https://{host}:47990/api
+env_prefix: SUNSHINE
+tls_insecure: true # self-signed cert
+vars:
+  host: 192.168.8.10 # SUNSHINE_HOST overrides
+
+auth:
+  strategy: basic
+  username: "{secret.username}"
+  password: "{secret.password}"
+
+secrets:
+  username: { ref: "op://homelab/n77x36pmuctoljfazqgusnfhdu/username" }
+  password: { ref: "op://homelab/n77x36pmuctoljfazqgusnfhdu/password" }
+
+endpoints:
+  serverinfo:
+    base_url: http://{host}:47989
+    auth: { strategy: none }
+    codec: { response: xml }
+
+commands:
+  apps:
+    help: configured stream apps (name, uuid)
+    method: GET
+    path: /apps
+    output: { filter: ".apps|map({name,uuid})" }
+  clients:
+    help: paired clients (named certificates)
+    method: GET
+    path: /clients/list
+    output: { filter: ".named_certs|map({name,uuid,enabled})" }
+  config:
+    help: full Sunshine config object
+    method: GET
+    path: /config
+  version:
+    help: running Sunshine version (bare string)
+    method: GET
+    path: /config
+    output: { filter: ".version // \"unknown\"", mode: scalar }
+  status:
+    help: version + serverinfo health + paired client count
+    steps:
+      - id: info
+        endpoint: serverinfo
+        method: GET
+        path: /serverinfo
+        decode: xml
+        extract: { hostname: ".hostname", appversion: ".appversion" }
+      - id: cfg
+        method: GET
+        path: /config
+        extract: { version: ".version // \"unknown\"", platform: ".platform // \"unknown\"" }
+      - id: clients
+        method: GET
+        path: /clients/list
+        extract: { paired: ".named_certs | length" }
+    output:
+      filter: '{host: env.host, hostname, sunshineVersion: version, platform, gamestreamVersion: appversion, pairedClients: paired}'

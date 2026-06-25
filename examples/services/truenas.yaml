@@ -1,0 +1,34 @@
+# Phase-0 schema proof: jsonrpc-ws transport + ws-login auth land in a later
+# phase. This manifest lints today; execution arrives with the WebSocket transport.
+name: truenas
+description: TrueNAS Scale (JSON-RPC 2.0 over WebSocket)
+base_url: wss://192.168.8.36/api/current
+env_prefix: TRUENAS
+transport: jsonrpc-ws
+tls_insecure: true
+
+auth:
+  strategy: ws-login # connection-scoped handshake
+  method: auth.login_with_api_key
+  params: ["{secret.api_key}"]
+
+secrets:
+  api_key:
+    # Referenced by 1Password item-id to dodge title collisions.
+    ref: "op://homelab/zk7af3vs7sjmxzcmvtmkuk4l5a/api_key"
+    env: TRUENAS_API_KEY
+
+commands:
+  ping:
+    help: core.ping (unauthenticated health)
+    method: core.ping
+    noauth: true
+  pools:
+    help: zpool status / capacity
+    method: pool.query
+    output: { filter: "map({name,status,healthy})" }
+  datasets:
+    help: datasets (name, type)
+    method: pool.dataset.query
+    params: "[[], {\"limit\": 50}]"
+    output: { filter: "map({name,type})" }

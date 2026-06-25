@@ -1,0 +1,58 @@
+# CI for labctl: format check, vet, test (race + coverage), and a build smoke
+# test. Runs on PRs and pushes to main.
+name: CI
+
+run-name: "CI: ${{ github.event.pull_request.title || github.event.head_commit.message || github.sha }}"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go mod tidy check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## CI"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| Tests | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,29 @@
+name: bazarr
+description: Bazarr (subtitles) — /api base, {data} wrapper, fixed-query paging
+base_url: https://bazarr.lilbro.cloud
+env_prefix: BAZARR
+
+auth:
+  strategy: header-key
+  header: X-Api-Key
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    ref: "op://homelab/Bazarr/api_key"
+    env: BAZARR_API_KEY
+
+commands:
+  status:
+    help: server status
+    method: GET
+    path: /api/system/status
+    output: { filter: ".data // ." }
+  list:
+    help: subtitle status per series
+    method: GET
+    path: /api/series
+    # Some Bazarr versions ignore length=-1; request a large explicit page.
+    pagination: { style: fixed-query, query: "start=0&length=1000" }
+    output:
+      filter: "(.data // .) | map({seriesId:(.sonarrSeriesId // .seriesId),title,monitored,episodeFileCount,episodeMissingCount})"

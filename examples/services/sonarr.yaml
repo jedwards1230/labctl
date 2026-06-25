@@ -1,0 +1,36 @@
+name: sonarr
+description: Sonarr v3 (series)
+base_url: https://tv.lilbro.cloud
+env_prefix: SONARR
+
+auth:
+  strategy: header-key
+  header: X-Api-Key
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    ref: "op://homelab/Sonarr/api_key"
+    env: SONARR_API_KEY
+
+commands:
+  status:
+    help: server appName + version
+    method: GET
+    path: /api/v3/system/status
+    output: { filter: "{appName,version,instanceName,isProduction}" }
+  list:
+    help: library list (series)
+    method: GET
+    path: /api/v3/series
+    output: { filter: "map({id,title,year,monitored,seasonCount:(.seasons|length),path})" }
+  profiles:
+    help: quality profiles
+    method: GET
+    path: /api/v3/qualityprofile
+    output: { filter: "map({id,name,upgradeAllowed})" }
+  rootfolders:
+    help: root folders + free space
+    method: GET
+    path: /api/v3/rootfolder
+    output: { filter: "map({id,path,accessible,freeGiB:((.freeSpace//0)/1073741824|floor)})" }

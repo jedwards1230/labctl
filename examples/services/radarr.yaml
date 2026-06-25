@@ -1,0 +1,36 @@
+name: radarr
+description: Radarr v3 (movies)
+base_url: https://movies.lilbro.cloud
+env_prefix: RADARR
+
+auth:
+  strategy: header-key
+  header: X-Api-Key
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    ref: "op://homelab/Radarr/api_key"
+    env: RADARR_API_KEY
+
+commands:
+  status:
+    help: server appName + version
+    method: GET
+    path: /api/v3/system/status
+    output: { filter: "{appName,version,instanceName,isProduction}" }
+  list:
+    help: library list (movies)
+    method: GET
+    path: /api/v3/movie
+    output: { filter: "map({id,title,year,monitored,hasFile,path})" }
+  profiles:
+    help: quality profiles
+    method: GET
+    path: /api/v3/qualityprofile
+    output: { filter: "map({id,name,upgradeAllowed})" }
+  rootfolders:
+    help: root folders + free space
+    method: GET
+    path: /api/v3/rootfolder
+    output: { filter: "map({id,path,accessible,freeGiB:((.freeSpace//0)/1073741824|floor)})" }
