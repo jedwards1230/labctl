@@ -1,8 +1,8 @@
 // Package auth applies a manifest's credential strategy to an outgoing HTTP
 // request. Secrets are interpolated from templates at apply time and go into
-// headers (never argv). Phase 1 implements the static strategies; derived-token
-// strategies (oauth2-client-credentials, login-flow) and ws-login land in later
-// phases.
+// headers (never argv). Static strategies (none/header-key/bearer/basic) are
+// implemented inline; derived-token strategies (oauth2-client-credentials) fetch
+// a short-lived token and cache it on disk.
 package auth
 
 import (
@@ -65,7 +65,14 @@ func (a Applier) Apply(req *http.Request, noAuth bool) error {
 	case "ws-login":
 		// Auth is connection-scoped; wired in transport.DoJSONRPCWS — no per-request header to set.
 		return nil
-	case "oauth2-client-credentials", "login-flow", "external-tool":
+	case "oauth2-client-credentials":
+		tok, err := fetchOAuth2Token(req.Context(), a.auth, a.env, cacheDir())
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		return nil
+	case "login-flow", "external-tool":
 		return fmt.Errorf("auth strategy %q is not yet implemented (planned for a later phase)", a.auth.Strategy)
 	default:
 		return fmt.Errorf("unknown auth strategy %q", a.auth.Strategy)

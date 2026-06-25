@@ -121,6 +121,13 @@ func validateAuth(a Auth, secrets map[string]Secret) error {
 		if a.Username == "" || a.Password == "" {
 			return fmt.Errorf("auth basic requires username and password templates")
 		}
+	case "oauth2-client-credentials":
+		if a.Value == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires value (token URL)")
+		}
+		if a.Username == "" || a.Password == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires username (client_id) and password (client_secret) templates")
+		}
 	}
 	// Verify {secret.X} references resolve to a declared secret.
 	for _, tmpl := range []string{a.Value, a.Username, a.Password} {

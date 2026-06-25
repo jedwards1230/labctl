@@ -700,6 +700,8 @@ func mergeAuthPreview(headers map[string]string, a manifest.Auth, noAuth bool) m
 		out["Authorization"] = scheme + " <redacted>"
 	case "basic":
 		out["Authorization"] = "Basic <redacted>"
+	case "oauth2-client-credentials":
+		out["Authorization"] = "Bearer <redacted>"
 	}
 	return out
 }

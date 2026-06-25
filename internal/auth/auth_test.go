@@ -135,8 +135,10 @@ func TestApplyUnsupportedAndUnknownStrategies(t *testing.T) {
 	// ws-login is excluded here because it is now implemented (no-op at HTTP
 	// layer; auth is connection-scoped in transport.DoJSONRPCWS). See
 	// TestApplyWSLoginNoOp.
+	// oauth2-client-credentials is excluded because it is now implemented. See
+	// TestApplyOAuth2ClientCredentials in oauth2_test.go.
 	for _, strat := range []string{
-		"oauth2-client-credentials", "login-flow", "external-tool", "bogus",
+		"login-flow", "external-tool", "bogus",
 	} {
 		t.Run(strat, func(t *testing.T) {
 			req := newReq(t)
