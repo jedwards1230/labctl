@@ -52,7 +52,6 @@ type Service struct {
 // Endpoint is an additional named endpoint for multi-endpoint services.
 type Endpoint struct {
 	BaseURL     string `yaml:"base_url"`
-	Transport   string `yaml:"transport"`
 	Auth        *Auth  `yaml:"auth"` // pointer: nil = inherit service auth, set = override (incl. "none")
 	TLSInsecure bool   `yaml:"tls_insecure"`
 	Codec       Codec  `yaml:"codec"`

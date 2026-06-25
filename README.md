@@ -52,9 +52,18 @@ named commands; pagination; multi-endpoint).
 
 ## How it works
 
-- **Two command producers, one model.** Hand-written `commands:` today; OpenAPI
-  inference (`spec:`) is on the roadmap. Both emit one format-neutral command the
-  executor runs, so the CLI and the (planned) MCP server behave identically.
+- **Two command producers, one model.** Hand-written `commands:` or OpenAPI
+  inference (`spec:` via libopenapi). Both emit one format-neutral command the
+  executor runs, so the CLI and the MCP server behave identically.
+- **Transports.** `http` (default, curl-equivalent) and `jsonrpc-ws` (WebSocket
+  JSON-RPC with ws-login auth — used by TrueNAS).
+- **Auth strategies.** `none`, `header-key`, `bearer`, `basic`,
+  `oauth2-client-credentials` (with on-disk token cache), and `ws-login`.
+- **Composed pipelines.** A command can declare `steps:` instead of a single
+  path — each step issues a request, extracts variables, and feeds the next. Use
+  `when:`, `confirm:`, `on_error:`, and `body_transform:` for control flow.
+- **MCP server.** `labctl mcp` speaks stdio MCP, exposing every non-ignored
+  command as a tool. Same executor as the CLI.
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. An env override
   (`<PREFIX>_<SECRET>`) skips the resolver for ephemeral devcontainers/CI.
@@ -88,10 +97,10 @@ collector as-is); use TLS client certs or your collector's standard auth instead
 
 ## Status
 
-Phase 1: `http` transport; `none`/`header-key`/`bearer`/`basic` auth; the `op`
-external-tool secret resolver with env override; generic verbs; gojq filtering
-(json/raw/scalar); optional OpenTelemetry tracing. Roadmap: OpenAPI inference,
-`jsonrpc-ws`, composed pipelines, and a stdio MCP server.
+Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic`/
+`oauth2-client-credentials`/`ws-login` auth; op secret resolver with env override;
+OpenAPI inference (`spec:`); composed `steps:` pipelines; stdio MCP server
+(`labctl mcp`); optional OpenTelemetry tracing.
 
 ## License
 

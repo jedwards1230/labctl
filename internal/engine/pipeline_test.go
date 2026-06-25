@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/manifest"
+	"github.com/jedwards1230/labctl/internal/output"
 )
 
 // newPipelineSvc builds a minimal service pointing at baseURL, with the given
@@ -520,5 +522,89 @@ func TestPipelineDryRun(t *testing.T) {
 	}
 	if res.Body != nil {
 		t.Fatalf("expected nil body in dry-run, got %q", res.Body)
+	}
+}
+
+// TestPipelineExtractAltAndPipe verifies that extract expressions using the //
+// (alternative) and | (pipe) operators work correctly end-to-end, and that the
+// pipeline output filter is NOT re-applied by the render layer.
+//
+// Regression test for the double-filter bug: executePipeline applied the
+// output filter against accVars (correctly), but dispatch's output.Render then
+// ran the same filter again against the already-assembled JSON — causing fields
+// renamed by the first pass (e.g. .version→.sunshineVersion) to appear as null.
+func TestPipelineExtractAltAndPipe(t *testing.T) {
+	cfgResp := `{"version":"2025.1.2","platform":"linux"}`
+	clientsResp := `{"named_certs":[{"name":"alice"},{"name":"bob"}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/config":
+			_, _ = w.Write([]byte(cfgResp))
+		case "/clients/list":
+			_, _ = w.Write([]byte(clientsResp))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	svc := newPipelineSvc(srv.URL, map[string]manifest.Command{
+		"status": {
+			Steps: []manifest.Step{
+				{
+					ID:     "cfg",
+					Method: "GET",
+					Path:   "/config",
+					// // alternative operator: falls back to "unknown" when null.
+					Extract: map[string]string{
+						"version":  `.version // "unknown"`,
+						"platform": `.platform // "unknown"`,
+					},
+				},
+				{
+					ID:     "clients",
+					Method: "GET",
+					Path:   "/clients/list",
+					// | pipe: count array elements.
+					Extract: map[string]string{"paired": ".named_certs | length"},
+				},
+			},
+			// Filter renames keys: .version→.sunshineVersion, .paired→.pairedClients.
+			// The render layer must NOT re-run this filter on the assembled body.
+			Output: manifest.Output{Filter: `{sunshineVersion: .version, platform: .platform, pairedClients: .paired}`},
+		},
+	})
+
+	req := newPipelineReq(svc, "status", Flags{})
+	res, err := Execute(context.Background(), req, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate what dispatch does: pass the result through output.Render.
+	// With the fix, res.Output has an empty filter so Render uses "." (pass-through).
+	var buf bytes.Buffer
+	if renderErr := output.Render(res.Body, res.Output, output.Options{}, &buf); renderErr != nil {
+		t.Fatalf("render: %v", renderErr)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+		t.Fatalf("parse rendered body: %v", err)
+	}
+
+	if m["sunshineVersion"] != "2025.1.2" {
+		t.Errorf("sunshineVersion: want 2025.1.2, got %v (// operator or double-filter bug)", m["sunshineVersion"])
+	}
+	if got, ok := m["pairedClients"].(float64); !ok || got != 2 {
+		t.Errorf("pairedClients: want 2, got %v (| length or double-filter bug)", m["pairedClients"])
+	}
+	if _, leaked := m["paired"]; leaked {
+		t.Error("pre-rename 'paired' key in output: filter applied twice")
+	}
+	if _, leaked := m["version"]; leaked {
+		t.Error("pre-rename 'version' key in output: filter applied twice")
 	}
 }

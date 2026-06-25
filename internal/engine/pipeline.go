@@ -138,7 +138,11 @@ func executePipeline(
 		return nil, fmt.Errorf("pipeline: marshal result: %w", err)
 	}
 
-	return &Result{Body: body, Output: cmd.Output}, nil
+	// The pipeline has already applied the output filter; return the body
+	// with an empty filter so the render layer uses "." (pass-through) and
+	// does not re-run the same filter against the already-assembled JSON.
+	renderedOutput := manifest.Output{Mode: cmd.Output.Mode}
+	return &Result{Body: body, Output: renderedOutput}, nil
 }
 
 // runStep issues the HTTP request for one pipeline step and updates accVars
