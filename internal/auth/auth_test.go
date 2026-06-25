@@ -132,8 +132,11 @@ func TestApplyPropagatesExpandError(t *testing.T) {
 
 func TestApplyUnsupportedAndUnknownStrategies(t *testing.T) {
 	// Later-phase strategies and a typo both error rather than silently no-op.
+	// ws-login is excluded here because it is now implemented (no-op at HTTP
+	// layer; auth is connection-scoped in transport.DoJSONRPCWS). See
+	// TestApplyWSLoginNoOp.
 	for _, strat := range []string{
-		"oauth2-client-credentials", "login-flow", "ws-login", "external-tool", "bogus",
+		"oauth2-client-credentials", "login-flow", "external-tool", "bogus",
 	} {
 		t.Run(strat, func(t *testing.T) {
 			req := newReq(t)
@@ -142,5 +145,15 @@ func TestApplyUnsupportedAndUnknownStrategies(t *testing.T) {
 				t.Errorf("strategy %q: want error, got nil", strat)
 			}
 		})
+	}
+}
+
+func TestApplyWSLoginNoOp(t *testing.T) {
+	// ws-login auth is connection-scoped (handled in transport.DoJSONRPCWS);
+	// Apply is a deliberate no-op so it does not error on HTTP requests.
+	req := newReq(t)
+	a := New(manifest.Auth{Strategy: "ws-login", Method: "auth.login_with_api_key"}, template.Env{})
+	if err := a.Apply(req, false); err != nil {
+		t.Errorf("ws-login Apply: want nil, got %v", err)
 	}
 }
