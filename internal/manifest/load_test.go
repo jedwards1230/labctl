@@ -34,8 +34,8 @@ auth: { strategy: none }
 	if svc.Transport != "http" {
 		t.Errorf("transport default = %q, want http", svc.Transport)
 	}
-	if svc.OutputMode() != "json" {
-		t.Errorf("output mode = %q, want json", svc.OutputMode())
+	if svc.Timeout != "60s" {
+		t.Errorf("timeout default = %q, want 60s", svc.Timeout)
 	}
 	if svc.TimeoutDuration().Seconds() != 60 {
 		t.Errorf("timeout = %v, want 60s", svc.TimeoutDuration())

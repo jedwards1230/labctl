@@ -128,9 +128,6 @@ func applyConfigDefaults(c *Config) {
 	if c.Defaults.Output == "" {
 		c.Defaults.Output = "json"
 	}
-	if c.Defaults.OpVault == "" {
-		c.Defaults.OpVault = "homelab"
-	}
 	if len(c.Secret.Command) == 0 {
 		c.Secret.Command = append([]string(nil), DefaultResolverCommand...)
 	}
@@ -146,20 +143,6 @@ func mergeDefaults(svc *Service, cfg Config) {
 	if svc.Timeout == "" {
 		svc.Timeout = cfg.Defaults.Timeout
 	}
-	mode := svc.Output.Mode
-	if mode == "" {
-		mode = cfg.Defaults.Output
-	}
-	svc.resolvedOutput = mode
-}
-
-// OutputMode returns the resolved render mode for the service (its own or the
-// global default).
-func (s *Service) OutputMode() string {
-	if s.resolvedOutput != "" {
-		return s.resolvedOutput
-	}
-	return "json"
 }
 
 // TimeoutDuration parses the resolved timeout, falling back to 60s.

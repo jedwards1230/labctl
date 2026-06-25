@@ -15,14 +15,6 @@ var HTTPVerbs = map[string]string{
 	"head":   "HEAD",
 }
 
-// IsVerb reports whether name is a generic verb (http or jsonrpc).
-func IsVerb(name string) bool {
-	if _, ok := HTTPVerbs[strings.ToLower(name)]; ok {
-		return true
-	}
-	return strings.ToLower(name) == "call"
-}
-
 // Verb synthesizes an ephemeral Command from a generic verb and its args.
 //
 //	get  <path> [query]
@@ -40,11 +32,10 @@ func Verb(transport, verb string, args []string) (*Command, error) {
 			params = args[1]
 		}
 		return &Command{
-			ID:        "call",
-			Method:    args[0],
-			Params:    params,
-			Write:     isWrite("jsonrpc-ws", args[0]),
-			Synthetic: true,
+			ID:     "call",
+			Method: args[0],
+			Params: params,
+			Write:  isWrite("jsonrpc-ws", args[0]),
 		}, nil
 	}
 
@@ -63,12 +54,11 @@ func Verb(transport, verb string, args []string) (*Command, error) {
 		path = path[:i]
 	}
 	cmd := &Command{
-		ID:        lower,
-		Method:    method,
-		Path:      path,
-		Query:     query,
-		Write:     isWrite(transport, method),
-		Synthetic: true,
+		ID:     lower,
+		Method: method,
+		Path:   path,
+		Query:  query,
+		Write:  isWrite(transport, method),
 	}
 	if method != "GET" && method != "HEAD" && len(args) > 1 {
 		cmd.Body = args[1]
