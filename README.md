@@ -80,6 +80,12 @@ labctl radarr list
 Export is fail-open and flush is time-bounded — a slow or down collector never
 hangs or breaks a command. stdout stays clean (diagnostics go to stderr).
 
+**Transport security**: span data leaves the process over whatever the standard
+`OTEL_*` env points at, so prefer an HTTPS (or TLS gRPC) collector endpoint —
+plain `http://` sends spans in cleartext and suits only a trusted local network.
+Never put credentials in `OTEL_EXPORTER_OTLP_HEADERS` (it transits to the
+collector as-is); use TLS client certs or your collector's standard auth instead.
+
 ## Status
 
 Phase 1: `http` transport; `none`/`header-key`/`bearer`/`basic` auth; the `op`

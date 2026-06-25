@@ -205,9 +205,9 @@ func (r *runner) dispatch(svc *manifest.Service, c *command.Command, args []stri
 		recordSpanError(span, err)
 		return err
 	}
-	span.SetStatus(codes.Ok, "")
 	if res.DryRunMsg != "" {
 		fmt.Fprint(r.stdout, res.DryRunMsg)
+		span.SetStatus(codes.Ok, "")
 		return nil
 	}
 	if err := output.Render(res.Body, res.Output, output.Options{
@@ -215,8 +215,10 @@ func (r *runner) dispatch(svc *manifest.Service, c *command.Command, args []stri
 		Raw:    r.flags.raw,
 		Mode:   r.flags.output,
 	}, r.stdout); err != nil {
+		recordSpanError(span, err)
 		return &decodeError{err}
 	}
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
 
