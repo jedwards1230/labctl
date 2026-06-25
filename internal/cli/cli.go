@@ -44,6 +44,7 @@ type runner struct {
 	stdout io.Writer
 	stderr io.Writer
 	config manifest.Config
+	loaded *manifest.Loaded
 	tracer trace.Tracer
 
 	curService string
@@ -95,6 +96,7 @@ func (r *runner) newRoot() *cobra.Command {
 	loaded, loadErr := manifest.Load(configDirFromArgs(r.flags.configDir, root))
 	if loaded != nil {
 		r.config = loaded.Config
+		r.loaded = loaded
 	}
 
 	r.addBuiltins(root, loaded, loadErr)

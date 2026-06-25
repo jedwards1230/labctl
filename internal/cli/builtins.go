@@ -9,6 +9,7 @@ import (
 
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/manifest"
+	"github.com/jedwards1230/labctl/internal/mcpserver"
 	"github.com/spf13/cobra"
 )
 
@@ -127,11 +128,13 @@ func probe(client *http.Client, svc *manifest.Service) string {
 
 func (r *runner) cmdMCP() *cobra.Command {
 	return &cobra.Command{
-		Use:    "mcp",
-		Short:  "serve manifests as MCP tools over stdio",
-		Hidden: false,
+		Use:   "mcp",
+		Short: "serve manifests as MCP tools over stdio",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("the MCP server is planned for a later phase")
+			if r.loaded == nil || len(r.loaded.Services) == 0 {
+				return fmt.Errorf("no services configured; add manifests under %s/services/", manifest.ConfigDir())
+			}
+			return mcpserver.Serve(cmd.Context(), r.loaded, r.config, r.tracer, r.stderr)
 		},
 	}
 }
