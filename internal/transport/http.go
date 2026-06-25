@@ -48,9 +48,9 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d on %s %s", e.Status, e.Method, e.URL)
 }
 
-// DoHTTP executes the request and returns the response body, or an *HTTPError on
-// a ≥400 status (after extracting a server message), or a transport error.
-func DoHTTP(r HTTPRequest) ([]byte, error) {
+// DoHTTPWithHeaders executes the request and returns the response body and
+// headers, or an *HTTPError on a ≥400 status, or a transport error.
+func DoHTTPWithHeaders(r HTTPRequest) ([]byte, http.Header, error) {
 	accept := r.Accept
 	if accept == "" {
 		accept = "application/json"
@@ -66,7 +66,7 @@ func DoHTTP(r HTTPRequest) ([]byte, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(r.Method), r.URL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Accept", accept)
 	if r.Body != nil {
@@ -80,7 +80,7 @@ func DoHTTP(r HTTPRequest) ([]byte, error) {
 		req.Header.Set(k, v)
 	}
 	if err := r.Auth.Apply(req, r.NoAuth); err != nil {
-		return nil, &AuthError{err}
+		return nil, nil, &AuthError{err}
 	}
 
 	if r.Verbose != nil {
@@ -94,12 +94,12 @@ func DoHTTP(r HTTPRequest) ([]byte, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, &NetworkError{err}
+		return nil, nil, &NetworkError{err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &NetworkError{err}
+		return nil, nil, &NetworkError{err}
 	}
 
 	if r.Verbose != nil {
@@ -107,14 +107,21 @@ func DoHTTP(r HTTPRequest) ([]byte, error) {
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, &HTTPError{
+		return nil, nil, &HTTPError{
 			Status: resp.StatusCode,
 			Detail: extractError(body),
 			Method: strings.ToUpper(r.Method),
 			URL:    r.URL,
 		}
 	}
-	return body, nil
+	return body, resp.Header, nil
+}
+
+// DoHTTP executes the request and returns the response body, or an *HTTPError on
+// a ≥400 status (after extracting a server message), or a transport error.
+func DoHTTP(r HTTPRequest) ([]byte, error) {
+	body, _, err := DoHTTPWithHeaders(r)
+	return body, err
 }
 
 // AuthError wraps a credential/auth-apply failure (exit code 3).

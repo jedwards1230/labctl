@@ -1,0 +1,36 @@
+name: ts
+description: Tailscale tailnet API (read-only)
+base_url: https://api.tailscale.com
+env_prefix: TS
+
+auth:
+  strategy: oauth2-client-credentials
+  value: "https://api.tailscale.com/api/v2/oauth/token"
+  username: "{secret.client_id}"
+  password: "{secret.client_secret}"
+
+secrets:
+  client_id:
+    ref: "op://homelab/Tailscale API - homelab/client_id"
+    env: TS_CLIENT_ID
+  client_secret:
+    ref: "op://homelab/Tailscale API - homelab/client_secret"
+    env: TS_CLIENT_SECRET
+
+commands:
+  devices:
+    help: list tailnet devices
+    method: GET
+    path: /api/v2/tailnet/-/devices
+    output:
+      filter: ".devices | map({id,name:(.name//.hostname),host:.hostname,os:.os,lastSeen:.lastSeen,authorized:.authorized,updateAvailable:.updateAvailable})"
+
+  settings:
+    help: tailnet admin settings
+    method: GET
+    path: /api/v2/tailnet/-/settings
+
+  dns:
+    help: tailnet DNS nameservers
+    method: GET
+    path: /api/v2/tailnet/-/dns/nameservers

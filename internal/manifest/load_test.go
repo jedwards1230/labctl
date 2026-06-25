@@ -34,8 +34,8 @@ auth: { strategy: none }
 	if svc.Transport != "http" {
 		t.Errorf("transport default = %q, want http", svc.Transport)
 	}
-	if svc.OutputMode() != "json" {
-		t.Errorf("output mode = %q, want json", svc.OutputMode())
+	if svc.Timeout != "60s" {
+		t.Errorf("timeout default = %q, want 60s", svc.Timeout)
 	}
 	if svc.TimeoutDuration().Seconds() != 60 {
 		t.Errorf("timeout = %v, want 60s", svc.TimeoutDuration())
@@ -59,6 +59,18 @@ func TestValidateRejectsBad(t *testing.T) {
 		"bad strategy":         {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "telepathy"}},
 		"undeclared secret":    {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "header-key", Header: "X", Value: "{secret.missing}"}},
 		"header-key no header": {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "header-key", Value: "v"}},
+		"bad svc pagination style": {
+			Name:       "x",
+			BaseURL:    "http://h",
+			Pagination: Pagination{Style: "infinite-scroll"},
+		},
+		"bad cmd pagination style": {
+			Name:    "x",
+			BaseURL: "http://h",
+			Commands: map[string]Command{
+				"list": {Method: "GET", Path: "/", Pagination: Pagination{Style: "magic"}},
+			},
+		},
 	}
 	for name, svc := range cases {
 		if err := Validate(svc); err == nil {

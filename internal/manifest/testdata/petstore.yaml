@@ -1,0 +1,60 @@
+openapi: "3.0.3"
+info:
+  title: Petstore
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets
+      description: Returns a list of all pets in the store.
+      tags: [pets]
+      responses:
+        "200":
+          description: A list of pets.
+    post:
+      operationId: createPet
+      summary: Create a pet
+      tags: [pets, write]
+      responses:
+        "201":
+          description: Pet created.
+  /pets/{petId}:
+    get:
+      operationId: getPetById
+      summary: Info for a specific pet
+      tags: [pets]
+      responses:
+        "200":
+          description: Pet info.
+    delete:
+      operationId: deletePet
+      summary: Delete a pet
+      description: Permanently deletes the named pet.
+      tags: [pets, write]
+      responses:
+        "204":
+          description: Pet deleted.
+  /owners:
+    get:
+      operationId: listOwners
+      summary: List all owners
+      tags: [owners]
+      responses:
+        "200":
+          description: A list of owners.
+  /owners/{ownerId}/pets:
+    get:
+      operationId: listPetsByOwner
+      summary: List pets for an owner
+      tags: [owners, pets]
+      responses:
+        "200":
+          description: Pets for the owner.
+  /health:
+    get:
+      summary: Health check
+      description: Returns 200 if the service is healthy.
+      responses:
+        "200":
+          description: OK.

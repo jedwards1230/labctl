@@ -14,7 +14,6 @@ type Config struct {
 
 // Defaults are global fallbacks applied to a service when it leaves a field unset.
 type Defaults struct {
-	OpVault string `yaml:"op_vault"`
 	Timeout string `yaml:"timeout"` // Go duration string, e.g. "60s"
 	Output  string `yaml:"output"`  // json | raw | scalar (table deferred)
 }
@@ -42,21 +41,17 @@ type Service struct {
 	Spec        string              `yaml:"spec"`        // OpenAPI URL (relative to base_url) — Phase 2
 	SpecFilter  SpecFilter          `yaml:"spec_filter"` // Phase 2
 	PathRules   PathRules           `yaml:"path_rules"`
-	Aliases     map[string]string   `yaml:"aliases"` // resource-alias table (ak)
 	Pagination  Pagination          `yaml:"pagination"`
 	Output      Output              `yaml:"output"`
 	Commands    map[string]Command  `yaml:"commands"`
 
 	// timeout resolved from global defaults at load time (not a YAML field).
 	Timeout string `yaml:"-"`
-	// OutputMode resolved from output.mode or global default at load time.
-	resolvedOutput string `yaml:"-"`
 }
 
 // Endpoint is an additional named endpoint for multi-endpoint services.
 type Endpoint struct {
 	BaseURL     string `yaml:"base_url"`
-	Transport   string `yaml:"transport"`
 	Auth        *Auth  `yaml:"auth"` // pointer: nil = inherit service auth, set = override (incl. "none")
 	TLSInsecure bool   `yaml:"tls_insecure"`
 	Codec       Codec  `yaml:"codec"`
@@ -92,7 +87,6 @@ type SpecFilter struct {
 // PathRules captures per-service URL quirks.
 type PathRules struct {
 	TrailingSlash string `yaml:"trailing_slash"` // "" | before-query (ak: path/?qs)
-	StripLeading  bool   `yaml:"strip_leading"`  // drop a leading / on the command path (sunshine)
 }
 
 // Pagination is the service-wide default; a command may override it.

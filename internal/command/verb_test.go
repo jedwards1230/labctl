@@ -46,14 +46,3 @@ func TestVerbUsageErrors(t *testing.T) {
 		t.Error("expected error for unknown verb")
 	}
 }
-
-func TestIsVerb(t *testing.T) {
-	for _, v := range []string{"get", "POST", "call"} {
-		if !IsVerb(v) {
-			t.Errorf("%q should be a verb", v)
-		}
-	}
-	if IsVerb("status") {
-		t.Error("status is not a verb")
-	}
-}

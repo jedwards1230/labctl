@@ -52,7 +52,7 @@ commands:
         method: GET
         path: /serverinfo
         decode: xml
-        extract: { hostname: ".hostname", appversion: ".appversion" }
+        extract: { hostname: ".root.hostname", appversion: ".root.appversion" }
       - id: cfg
         method: GET
         path: /config
@@ -62,4 +62,4 @@ commands:
         path: /clients/list
         extract: { paired: ".named_certs | length" }
     output:
-      filter: '{host: env.host, hostname, sunshineVersion: version, platform, gamestreamVersion: appversion, pairedClients: paired}'
+      filter: '{host: .host, hostname: .hostname, sunshineVersion: .version, platform: .platform, gamestreamVersion: .appversion, pairedClients: .paired}'

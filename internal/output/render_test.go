@@ -60,3 +60,62 @@ func TestRenderBadFilter(t *testing.T) {
 		t.Fatal("expected parse error on bad filter")
 	}
 }
+
+// TestRenderXMLSunshineServerinfo verifies that a Sunshine /serverinfo XML
+// response is decoded to a map tree where .root.hostname extracts the hostname.
+// The XML convention is: root element tag → top-level key; child elements →
+// nested map keys; attributes surfaced under "@attrs".
+func TestRenderXMLSunshineServerinfo(t *testing.T) {
+	// Sample trimmed from the real Sunshine /serverinfo endpoint.
+	xmlBody := `<?xml version="1.0" encoding="utf-8"?>
+<root status_code="200">
+  <hostname>desktop-1</hostname>
+  <appversion>7.1.431.-1</appversion>
+  <platform>windows</platform>
+</root>`
+
+	// Decode via the XML path and extract .root.hostname via jq.
+	got := render(t, xmlBody, manifest.Output{DefaultFilter: ".root.hostname"}, Options{
+		ResponseCodec: "xml",
+		Mode:          "scalar",
+	})
+	if got != "desktop-1\n" {
+		t.Fatalf("xml .root.hostname = %q, want %q", got, "desktop-1\n")
+	}
+
+	// Also verify appversion is reachable.
+	got2 := render(t, xmlBody, manifest.Output{DefaultFilter: ".root.appversion"}, Options{
+		ResponseCodec: "xml",
+		Mode:          "scalar",
+	})
+	if got2 != "7.1.431.-1\n" {
+		t.Fatalf("xml .root.appversion = %q, want %q", got2, "7.1.431.-1\n")
+	}
+}
+
+// TestRenderXMLAttributes verifies that XML attributes are surfaced under "@attrs".
+func TestRenderXMLAttributes(t *testing.T) {
+	xmlBody := `<root status_code="200"><hostname>myhost</hostname></root>`
+
+	got := render(t, xmlBody, manifest.Output{DefaultFilter: `.root["@attrs"].status_code`}, Options{
+		ResponseCodec: "xml",
+		Mode:          "scalar",
+	})
+	if got != "200\n" {
+		t.Fatalf("xml @attrs.status_code = %q, want %q", got, "200\n")
+	}
+}
+
+// TestRenderXMLRepeatedChildren verifies that repeated sibling elements are
+// accumulated into a []any array.
+func TestRenderXMLRepeatedChildren(t *testing.T) {
+	xmlBody := `<items><item>a</item><item>b</item><item>c</item></items>`
+
+	got := render(t, xmlBody, manifest.Output{DefaultFilter: ".items.item | length"}, Options{
+		ResponseCodec: "xml",
+		Mode:          "scalar",
+	})
+	if strings.TrimSpace(got) != "3" {
+		t.Fatalf("repeated children length = %q, want 3", got)
+	}
+}

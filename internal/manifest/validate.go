@@ -30,11 +30,29 @@ var validOutputModes = map[string]bool{
 	"table":  true, // accepted in schema; render deferred
 }
 
+// validPaginationStyles is the exhaustive set of styles the engine can execute.
+// Any other value is a typo that would silently return only page 1.
+var validPaginationStyles = map[string]bool{
+	"":                 true, // same as none
+	"none":             true,
+	"cursor":           true,
+	"page-number":      true,
+	"page-until-short": true,
+	"fixed-query":      true,
+}
+
 // Validate checks a service manifest for internal consistency. It does not touch
 // the network or resolve secrets — purely structural (used by `labctl lint`).
+//
+// Note: when spec: is set, this function validates the field value's syntax but
+// does NOT load the document (that happens at load time via InferredCommands). A
+// manifest with an unreachable spec: passes lint but fails at load/use time.
 func Validate(s *Service) error {
 	if s.BaseURL == "" && len(s.Endpoints) == 0 {
 		return fmt.Errorf("service must set base_url or at least one endpoint")
+	}
+	if err := validateSpec(s); err != nil {
+		return err
 	}
 	if !validTransports[transportOf(s.Transport)] {
 		return fmt.Errorf("unknown transport %q (want http|jsonrpc-ws)", s.Transport)
@@ -47,6 +65,9 @@ func Validate(s *Service) error {
 	}
 	if !validOutputModes[s.Output.Mode] {
 		return fmt.Errorf("unknown output mode %q (want json|raw|scalar)", s.Output.Mode)
+	}
+	if !validPaginationStyles[s.Pagination.Style] {
+		return fmt.Errorf("unknown pagination style %q (want none|cursor|page-number|page-until-short|fixed-query)", s.Pagination.Style)
 	}
 	for name, sec := range s.Secrets {
 		if sec.Ref == "" && sec.Env == "" {
@@ -84,6 +105,9 @@ func validateCommand(id string, c Command, s *Service) error {
 			return fmt.Errorf("command %q references unknown endpoint %q", id, c.Endpoint)
 		}
 	}
+	if !validPaginationStyles[c.Pagination.Style] {
+		return fmt.Errorf("command %q: unknown pagination style %q (want none|cursor|page-number|page-until-short|fixed-query)", id, c.Pagination.Style)
+	}
 	return nil
 }
 
@@ -104,6 +128,13 @@ func validateAuth(a Auth, secrets map[string]Secret) error {
 		if a.Username == "" || a.Password == "" {
 			return fmt.Errorf("auth basic requires username and password templates")
 		}
+	case "oauth2-client-credentials":
+		if a.Value == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires value (token URL)")
+		}
+		if a.Username == "" || a.Password == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires username (client_id) and password (client_secret) templates")
+		}
 	}
 	// Verify {secret.X} references resolve to a declared secret.
 	for _, tmpl := range []string{a.Value, a.Username, a.Password} {
@@ -111,6 +142,32 @@ func validateAuth(a Auth, secrets map[string]Secret) error {
 			if _, ok := secrets[ref]; !ok {
 				return fmt.Errorf("auth references undeclared secret %q", ref)
 			}
+		}
+	}
+	return nil
+}
+
+// validateSpec checks that spec: (if set) is a non-empty string and that any
+// SpecFilter patterns are non-empty strings. It does NOT load the document.
+func validateSpec(s *Service) error {
+	if s.Spec == "" {
+		if len(s.SpecFilter.Include) > 0 || len(s.SpecFilter.Exclude) > 0 {
+			return fmt.Errorf("spec_filter requires spec to be set")
+		}
+		return nil
+	}
+	// Must be either an http(s):// URL or a relative/absolute file path (non-empty).
+	if strings.TrimSpace(s.Spec) == "" {
+		return fmt.Errorf("spec must be a non-empty file path or http(s):// URL")
+	}
+	for i, p := range s.SpecFilter.Include {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("spec_filter.include[%d] must be a non-empty string", i)
+		}
+	}
+	for i, p := range s.SpecFilter.Exclude {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("spec_filter.exclude[%d] must be a non-empty string", i)
 		}
 	}
 	return nil

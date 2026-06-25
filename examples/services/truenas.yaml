@@ -1,5 +1,3 @@
-# Phase-0 schema proof: jsonrpc-ws transport + ws-login auth land in a later
-# phase. This manifest lints today; execution arrives with the WebSocket transport.
 name: truenas
 description: TrueNAS Scale (JSON-RPC 2.0 over WebSocket)
 base_url: wss://192.168.8.36/api/current
@@ -8,7 +6,7 @@ transport: jsonrpc-ws
 tls_insecure: true
 
 auth:
-  strategy: ws-login # connection-scoped handshake
+  strategy: ws-login
   method: auth.login_with_api_key
   params: ["{secret.api_key}"]
 
@@ -23,12 +21,39 @@ commands:
     help: core.ping (unauthenticated health)
     method: core.ping
     noauth: true
+  system-info:
+    help: system summary (version, hostname, uptime)
+    method: system.info
+    output:
+      filter: "{version, hostname, uptime_seconds, uptime, cores, physmem_gb: ((.physmem // 0) / 1073741824 | floor)}"
+  alerts:
+    help: active alerts
+    method: alert.list
+    output:
+      filter: "map({level, klass, formatted, dismissed})"
   pools:
     help: zpool status / capacity
     method: pool.query
-    output: { filter: "map({name,status,healthy})" }
+    output:
+      filter: "map({name, status, healthy, size_gb: ((.size // 0)/1073741824|floor), free_gb: ((.free // 0)/1073741824|floor)})"
   datasets:
-    help: datasets (name, type)
+    help: datasets (name, type, used/available)
     method: pool.dataset.query
     params: "[[], {\"limit\": 50}]"
-    output: { filter: "map({name,type})" }
+    output:
+      filter: "map({name, type, used_gb: ((.used.parsed // 0)/1073741824|floor), avail_gb: ((.available.parsed // 0)/1073741824|floor)})"
+  disks:
+    help: physical disks
+    method: disk.query
+    output:
+      filter: "map({name, model, serial, type, size_gb: ((.size // 0)/1073741824|floor)})"
+  services:
+    help: system services + state
+    method: service.query
+    output:
+      filter: "map({service, state, enable}) | sort_by(.service)"
+  apps:
+    help: installed TrueNAS apps + state
+    method: app.query
+    output:
+      filter: "map({name, state, version, upgrade_available})"

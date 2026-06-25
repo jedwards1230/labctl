@@ -72,7 +72,7 @@ func Load(dir string) (*Loaded, error) {
 			continue
 		}
 		path := filepath.Join(svcDir, e.Name())
-		svc, err := loadService(path)
+		svc, err := loadService(path, dir) // dir = config root; spec: paths resolve relative to it
 		if err != nil {
 			return nil, err
 		}
@@ -89,9 +89,10 @@ func Load(dir string) (*Loaded, error) {
 }
 
 // LoadService reads a single manifest file (used by `labctl lint <file>`),
-// applying global config defaults.
+// applying global config defaults. Relative spec: paths resolve from the same
+// directory as the manifest file (since there is no separate config root here).
 func LoadService(path string, cfg Config) (*Service, error) {
-	svc, err := loadService(path)
+	svc, err := loadService(path, filepath.Dir(path))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +104,33 @@ func LoadService(path string, cfg Config) (*Service, error) {
 	return svc, nil
 }
 
-func loadService(path string) (*Service, error) {
+// mergeSpecCommands derives commands from svc.Spec and merges them under svc.Commands.
+// Explicit commands: entries take precedence over inferred ones (same key → explicit wins).
+func mergeSpecCommands(svc *Service, configDir string) error {
+	inferred, err := InferredCommands(svc, configDir)
+	if err != nil {
+		return err
+	}
+	if len(inferred) == 0 {
+		return nil
+	}
+	// Ensure the commands map exists before merging.
+	if svc.Commands == nil {
+		svc.Commands = make(map[string]Command, len(inferred))
+	}
+	for key, cmd := range inferred {
+		if _, explicit := svc.Commands[key]; !explicit {
+			svc.Commands[key] = cmd
+		}
+	}
+	return nil
+}
+
+// loadService parses and validates a single manifest file. configDir is the
+// root config directory used to resolve relative spec: file paths. When called
+// from Load, configDir == l.Dir; when called from LoadService (lint), it
+// defaults to the directory containing the manifest file.
+func loadService(path, configDir string) (*Service, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
@@ -114,6 +141,10 @@ func loadService(path string) (*Service, error) {
 	}
 	if err := Validate(&svc); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	// Inject spec-derived commands (Phase 2). Explicit commands: entries win.
+	if err := mergeSpecCommands(&svc, configDir); err != nil {
+		return nil, fmt.Errorf("%s: spec: %w", path, err)
 	}
 	return &svc, nil
 }
@@ -127,9 +158,6 @@ func applyConfigDefaults(c *Config) {
 	}
 	if c.Defaults.Output == "" {
 		c.Defaults.Output = "json"
-	}
-	if c.Defaults.OpVault == "" {
-		c.Defaults.OpVault = "homelab"
 	}
 	if len(c.Secret.Command) == 0 {
 		c.Secret.Command = append([]string(nil), DefaultResolverCommand...)
@@ -146,20 +174,6 @@ func mergeDefaults(svc *Service, cfg Config) {
 	if svc.Timeout == "" {
 		svc.Timeout = cfg.Defaults.Timeout
 	}
-	mode := svc.Output.Mode
-	if mode == "" {
-		mode = cfg.Defaults.Output
-	}
-	svc.resolvedOutput = mode
-}
-
-// OutputMode returns the resolved render mode for the service (its own or the
-// global default).
-func (s *Service) OutputMode() string {
-	if s.resolvedOutput != "" {
-		return s.resolvedOutput
-	}
-	return "json"
 }
 
 // TimeoutDuration parses the resolved timeout, falling back to 60s.

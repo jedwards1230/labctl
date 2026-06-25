@@ -57,18 +57,18 @@ Fail-open, time-bounded flush — never blocks a command. The CLI is the first
 consumer; the long-running MCP server (a later phase) reuses the same provider
 and is where span-per-tool-call + metrics earn their keep.
 
-**Two faces, one executor** (planned): the CLI and a stdio MCP server will both
-drive `engine.Execute`, so behavior is identical.
+**Two faces, one executor**: the CLI and the stdio MCP server both drive
+`engine.Execute`, so behavior is identical.
 
 ## Status / roadmap
 
 Phase 1 (done): http transport; none/header-key/bearer/basic auth; op resolver +
 env override; generic verbs; gojq output; XDG load; `list`/`lint`/`doctor`.
-Next: OpenAPI inference (`spec:`, libopenapi), `jsonrpc-ws` + ws-login, composed
-pipelines (`steps:`), oauth2-client-credentials + derived-token cache, stdio MCP.
 
-The `truenas` and `sunshine` example manifests are schema proofs for those later
-phases — they lint today; some commands execute only once their transport lands.
+Phase 2+3 (done): `jsonrpc-ws` transport + ws-login auth; oauth2-client-credentials
+with on-disk token cache; OpenAPI inference via libopenapi (`spec:` + `spec_filter:`);
+composed multi-step pipelines (`steps:` with extract/when/confirm/on_error); stdio
+MCP server (`labctl mcp`). The `truenas` and `sunshine` manifests execute fully.
 
 ## Conventions
 

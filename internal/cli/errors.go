@@ -37,6 +37,7 @@ func classify(err error) int {
 		return exitOK
 	}
 	var httpErr *transport.HTTPError
+	var rpcErr *transport.RPCError
 	var authErr *transport.AuthError
 	var netErr *transport.NetworkError
 	var useErr *usageError
@@ -48,6 +49,8 @@ func classify(err error) int {
 		return exitAuth
 	case errors.As(err, &httpErr):
 		return exitHTTP
+	case errors.As(err, &rpcErr):
+		return exitHTTP // JSON-RPC errors map to the same exit code as HTTP ≥400
 	case errors.As(err, &netErr):
 		return exitNetwork
 	case errors.As(err, &decErr):

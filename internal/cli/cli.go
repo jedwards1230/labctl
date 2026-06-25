@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/engine"
@@ -44,6 +45,7 @@ type runner struct {
 	stdout io.Writer
 	stderr io.Writer
 	config manifest.Config
+	loaded *manifest.Loaded
 	tracer trace.Tracer
 
 	curService string
@@ -63,6 +65,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	if err := root.Execute(); err != nil {
+		// Cobra's "unknown command" / "unknown flag" errors are usage errors (exit 2).
+		if isUnknownCommandError(err) {
+			err = &usageError{err.Error()}
+		}
 		return reportError(stderr, err, r.flags.jsonErrors, r.curService, r.curCommand)
 	}
 	return exitOK
@@ -95,6 +101,7 @@ func (r *runner) newRoot() *cobra.Command {
 	loaded, loadErr := manifest.Load(configDirFromArgs(r.flags.configDir, root))
 	if loaded != nil {
 		r.config = loaded.Config
+		r.loaded = loaded
 	}
 
 	r.addBuiltins(root, loaded, loadErr)
@@ -112,6 +119,15 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 		Use:   svc.Name,
 		Short: svc.Description,
 		Long:  serviceHelp(svc, cmds),
+		// RunE is invoked when cobra cannot find a matching subcommand (e.g.
+		// "labctl radarr bogus-cmd"). Any argument here is an unknown command,
+		// so return a usageError (exit 2) instead of printing help and exiting 0.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return &usageError{fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())}
+			}
+			return cmd.Help()
+		},
 	}
 
 	// Named commands.
@@ -157,9 +173,6 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 
 func (r *runner) execNamed(svc *manifest.Service, c *command.Command, args []string) error {
 	r.curService, r.curCommand = svc.Name, c.ID
-	if len(c.Steps) > 0 {
-		return fmt.Errorf("composed commands are not yet implemented (planned for a later phase)")
-	}
 	return r.dispatch(svc, c, args)
 }
 
@@ -192,6 +205,7 @@ func (r *runner) dispatch(svc *manifest.Service, c *command.Command, args []stri
 			Endpoint: r.flags.endpoint,
 			DryRun:   r.flags.dryRun,
 			Verbose:  r.flags.verbose,
+			Yes:      r.flags.yes,
 		},
 		Runner: r.secretRunner(),
 	}, r.stderr)
@@ -205,9 +219,10 @@ func (r *runner) dispatch(svc *manifest.Service, c *command.Command, args []stri
 		return nil
 	}
 	if err := output.Render(res.Body, res.Output, output.Options{
-		Filter: r.flags.filter,
-		Raw:    r.flags.raw,
-		Mode:   r.flags.output,
+		Filter:        r.flags.filter,
+		Raw:           r.flags.raw,
+		Mode:          r.flags.output,
+		ResponseCodec: res.ResponseCodec,
 	}, r.stdout); err != nil {
 		recordSpanError(span, err)
 		return &decodeError{err}
@@ -234,13 +249,17 @@ func (r *runner) startSpan(svc *manifest.Service, c *command.Command) (context.C
 	return ctx, span
 }
 
-// recordSpanError marks the span failed and attaches an HTTP status when known.
+// recordSpanError marks the span failed and attaches an HTTP/RPC status when known.
 func recordSpanError(span trace.Span, err error) {
 	span.RecordError(err)
 	span.SetStatus(codes.Error, err.Error())
 	var he *transport.HTTPError
 	if errors.As(err, &he) {
 		span.SetAttributes(attribute.Int("http.response.status_code", he.Status))
+	}
+	var re *transport.RPCError
+	if errors.As(err, &re) {
+		span.SetAttributes(attribute.Int("rpc.grpc_status_code", re.Code))
 	}
 }
 
@@ -250,6 +269,18 @@ func (r *runner) secretRunner() func(argv []string) (string, error) {
 		return nil
 	}
 	return r.runner.(func(argv []string) (string, error))
+}
+
+// isUnknownCommandError reports whether the cobra error is an "unknown command"
+// or "unknown flag" message. These are usage errors (exit 2), not general errors (exit 1).
+func isUnknownCommandError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "unknown command") ||
+		strings.Contains(msg, "unknown flag") ||
+		strings.Contains(msg, "unknown shorthand flag")
 }
 
 // configDirFromArgs peeks at --config-dir before full parse so dynamic

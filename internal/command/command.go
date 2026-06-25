@@ -29,7 +29,6 @@ type Command struct {
 	MCPIgnore  bool
 	Steps      []manifest.Step
 	Write      bool // non-GET / mutating jsonrpc — informational only (binary gates nothing)
-	Synthetic  bool // produced from a generic verb, not the manifest
 }
 
 // FromManifest builds the command set declared in a service's commands: block.
