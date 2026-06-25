@@ -1,0 +1,40 @@
+# Claude PR review — calls the shared reusable workflow in
+# jedwards1230/release-workflows, which runs claude-code-action@v1 in Haiku
+# PR-review mode with the public jedwards1230-plugins marketplace + review-team
+# plugin enabled by default. The focus below is appended to the base prompt.
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    uses: jedwards1230/release-workflows/.github/workflows/claude-pr-review.yml@v1
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      draft_on_blocking: true
+      focus: |
+        labctl is a single Go binary: a manifest-driven CLI that drives HTTP/RPC
+        homelab service APIs. It compiles in ZERO service-specific logic — a
+        service is one services/<name>.yaml manifest. Core principle: it is an
+        unopinionated executor (gates nothing) — do NOT suggest adding
+        --read-only / write-confirm / safety gating; guardrails live in the
+        consuming layer (Claude-plugin hooks), not the tool.
+        - Secret handling: op:// refs resolved at call time; never values in
+          manifests/argv; must stay redacted in verbose/dry-run output. Flag any
+          path that could leak a resolved secret to stdout/stderr/logs.
+        - Template expansion ({secret.X}/{env.X}/{arg.N}/{var}) and manifest
+          schema validation: injection, or unvalidated input reaching the HTTP
+          request or the shell-out to `op`.
+        - Go correctness: ignored errors, nil deref, unchecked type assertions,
+          missing defer Close, goroutine/context handling in the telemetry flush.
+        - Exit-code contract (0/2/3/4/5/6) and stdout=data / stderr=diagnostics.
+        Do NOT re-flag gofmt / go vet / go mod tidy — CI owns those.
