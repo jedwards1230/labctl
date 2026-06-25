@@ -119,7 +119,9 @@ func executePipeline(
 				}
 				onErrEp, epErr := resolveStepEndpoint(svc, *step.OnError)
 				if epErr == nil {
-					_ = runStep(ctx, req, svc, *step.OnError, onErrEp, onErrEnv, accVars, stderr)
+					if err := runStep(ctx, req, svc, *step.OnError, onErrEp, onErrEnv, accVars, stderr); err != nil {
+						_, _ = fmt.Fprintf(stderr, "labctl: on_error step %q failed: %v (continuing)\n", stepID, err)
+					}
 				}
 				continue
 			}

@@ -216,6 +216,30 @@ func TestFetchOAuth2TokenCacheDirSymlink(t *testing.T) {
 	}
 }
 
+// TestReadCacheInsecurePerms verifies that readCache ignores a cache file whose
+// permissions are broader than 0600/0400 (e.g. world-readable 0644).
+func TestReadCacheInsecurePerms(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "insecure.token")
+
+	// Write a valid, non-expired cache entry — but with insecure 0644 permissions.
+	entry := tokenCacheEntry{
+		AccessToken: "should-be-ignored",
+		ExpiresAt:   time.Now().Add(time.Hour),
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if tok := readCache(path); tok != "" {
+		t.Errorf("readCache with 0644 file returned %q, want empty string (insecure perms must be rejected)", tok)
+	}
+}
+
 func TestApplyOAuth2ClientCredentials(t *testing.T) {
 	var calls atomic.Int32
 	srv := fakeTokenServer(t, 200,

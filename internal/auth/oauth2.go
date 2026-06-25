@@ -47,8 +47,15 @@ func cacheFileName(dir, clientID string) string {
 
 // readCache loads a cached token from disk and returns it if still valid
 // (more than 60 seconds before expiry). Returns empty string if absent,
-// unreadable, malformed, or expired.
+// unreadable, malformed, expired, or written with insecure permissions.
 func readCache(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 && perm != 0o400 {
+		return "" // insecure permissions — discard
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""

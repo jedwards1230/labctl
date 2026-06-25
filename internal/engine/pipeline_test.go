@@ -284,6 +284,70 @@ func TestPipelineOnErrorContinue(t *testing.T) {
 	}
 }
 
+// TestPipelineOnErrorFallbackFailureLogged verifies that when both the primary
+// step and its on_error fallback fail, the pipeline continues (no error returned)
+// and the fallback failure is written to stderr.
+func TestPipelineOnErrorFallbackFailureLogged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/fail":
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(`{"error":"primary failed"}`))
+		case "/fallback-also-fails":
+			w.WriteHeader(503)
+			_, _ = w.Write([]byte(`{"error":"fallback failed"}`))
+		case "/final":
+			_, _ = w.Write([]byte(`{"continued":true}`))
+		}
+	}))
+	defer srv.Close()
+
+	fallback := manifest.Step{
+		ID:     "fallback",
+		Method: "GET",
+		Path:   "/fallback-also-fails",
+	}
+	svc := newPipelineSvc(srv.URL, map[string]manifest.Command{
+		"recover": {
+			Steps: []manifest.Step{
+				{
+					ID:      "risky",
+					Method:  "GET",
+					Path:    "/fail",
+					OnError: &fallback,
+				},
+				{
+					ID:      "final",
+					Method:  "GET",
+					Path:    "/final",
+					Extract: map[string]string{"continued": ".continued"},
+				},
+			},
+			Output: manifest.Output{Filter: "."},
+		},
+	})
+
+	var stderrBuf bytes.Buffer
+	req := newPipelineReq(svc, "recover", Flags{})
+	res, err := Execute(context.Background(), req, &stderrBuf)
+	if err != nil {
+		t.Fatalf("expected no error when on_error fallback fails (pipeline should continue), got %v", err)
+	}
+	// The pipeline must continue to the final step.
+	m := parseBody(t, res.Body)
+	if m["continued"] != true {
+		t.Fatalf("expected continued=true after on_error failure, got %v", m)
+	}
+	// The fallback failure must appear on stderr.
+	stderrStr := stderrBuf.String()
+	if !strings.Contains(stderrStr, "on_error") {
+		t.Errorf("expected stderr to mention on_error, got: %q", stderrStr)
+	}
+	if !strings.Contains(stderrStr, "continuing") {
+		t.Errorf("expected stderr to mention continuing, got: %q", stderrStr)
+	}
+}
+
 // TestPipelineConfirmDefaultDeny verifies that a step with Confirm set and
 // Flags.Yes=false returns an error.
 func TestPipelineConfirmDefaultDeny(t *testing.T) {
