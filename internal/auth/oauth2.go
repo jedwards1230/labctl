@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
@@ -89,7 +90,8 @@ func writeCache(path, token string, expiresIn int) error {
 // and client_secret (Password field); the token URL is the Value field.
 // An optional scope may be provided in Params[0].
 //
-// Cache location: <dir>/<sha256(clientID)[:16]>.token (0600).
+// Cache location: <dir>/<sha256(clientID)>.token (0600), where the filename
+// is the full 64 hex chars of SHA-256(clientID).
 // Tokens are reused while valid with a 60-second safety margin.
 func fetchOAuth2Token(ctx context.Context, a manifest.Auth, env template.Env, dir string) (string, error) {
 	tokenURL, err := env.Expand(a.Value)
@@ -125,6 +127,17 @@ func fetchOAuth2Token(ctx context.Context, a manifest.Auth, env template.Env, di
 	// Check disk cache before making a network call.
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("oauth2: create cache dir: %w", err)
+	}
+	// TOCTOU guard: verify the cache dir is not a symlink and is owned by us.
+	dirInfo, err := os.Lstat(dir)
+	if err != nil {
+		return "", fmt.Errorf("oauth2: stat cache dir: %w", err)
+	}
+	if dirInfo.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("oauth2: cache dir is a symlink (security risk)")
+	}
+	if stat, ok := dirInfo.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return "", fmt.Errorf("oauth2: cache dir not owned by current user")
 	}
 	cachePath := cacheFileName(dir, clientID)
 	if tok := readCache(cachePath); tok != "" {
