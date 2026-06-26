@@ -146,16 +146,19 @@ func specCachePath(u string) string {
 	return filepath.Join(specCacheDir(), fmt.Sprintf("%x", sum[:])+".json")
 }
 
-// readSpecCache returns the cached spec bytes if the file exists, is owned with
-// secure perms (0600/0400), and is within the freshness window. Any miss
-// (absent, insecure, stale, unreadable) returns ok=false so the caller refetches.
+// readSpecCache returns the cached spec bytes if the file exists, has the exact
+// perms labctl writes (0600), and is within the freshness window. Any miss
+// (absent, wrong perms, stale, unreadable) returns ok=false so the caller
+// refetches. Requiring exactly 0600 — the only mode writeSpecCache produces —
+// means a file at any other mode (e.g. a 0400 downgrade) is treated as
+// externally modified and not trusted.
 func readSpecCache(path string) ([]byte, bool) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, false
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 && perm != 0o400 {
-		return nil, false // insecure perms — ignore
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		return nil, false // not the mode we write — ignore
 	}
 	if time.Since(info.ModTime()) > specCacheTTL {
 		return nil, false // stale
@@ -168,13 +171,31 @@ func readSpecCache(path string) ([]byte, bool) {
 }
 
 // writeSpecCache persists spec bytes to the cache with mode 0600 via an atomic
-// temp+rename. Best-effort: any failure is ignored (the next call refetches).
+// temp+rename. Best-effort: any failure is ignored (the next call refetches). A
+// UNIQUE temp name (not a shared "<path>.tmp") is required so two concurrent
+// processes caching the same spec URL never clobber each other's in-progress
+// temp file — mirroring the oauth2 token-cache write.
 func writeSpecCache(path string, b []byte) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), ".spec-*.tmp")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
 		return
 	}
 	if err := os.Rename(tmp, path); err != nil {

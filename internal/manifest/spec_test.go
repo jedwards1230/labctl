@@ -460,6 +460,27 @@ func TestSpecCacheHit(t *testing.T) {
 	}
 }
 
+// TestSpecCacheRejectsNon0600 proves the cache reader trusts only the exact mode
+// it writes (0600); a file at any other mode (e.g. a 0400 downgrade or a 0644
+// world-readable file) is treated as externally modified and ignored.
+func TestSpecCacheRejectsNon0600(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	path := specCachePath("http://spec.example/openapi.yaml")
+	writeSpecCache(path, []byte(`{"ok":true}`))
+
+	if _, ok := readSpecCache(path); !ok {
+		t.Fatal("freshly-written 0600 cache should be a hit")
+	}
+	for _, mode := range []os.FileMode{0o400, 0o644} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := readSpecCache(path); ok {
+			t.Fatalf("cache at mode %o should be ignored, got a hit", mode)
+		}
+	}
+}
+
 // TestLoadDegradesOnSpecFetchFailure proves a remote spec that does not resolve
 // degrades ONLY its service (kept with its static commands) and does NOT abort
 // the whole load. An unrelated service must still load.
