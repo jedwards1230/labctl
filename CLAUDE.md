@@ -43,7 +43,7 @@ internal/
   manifest/   YAML model + XDG load/merge + schema validation
   command/    format-neutral Command model + producers (commands: block, generic verbs)
   template/   {secret.X}/{env.X}/{arg.N}/{var} expansion (JSON braces pass through)
-  secret/     external-tool resolver (op read {ref}) + env override + idioms + cache
+  secret/     external-tool resolver (op read {ref}) + env override + idioms + cache + resolver-subprocess env injection
   auth/       apply none/header-key/bearer/basic to a request
   transport/  http (curl-equivalent, error extraction, typed errors→exit codes)
   output/     gojq filter + render modes (json/raw/scalar)

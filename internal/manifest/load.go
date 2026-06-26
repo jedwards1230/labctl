@@ -53,6 +53,9 @@ func Load(dir string) (*Loaded, error) {
 		if err := yaml.Unmarshal(b, &l.Config); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", cfgPath, err)
 		}
+		if err := ValidateConfig(&l.Config); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", cfgPath, err)
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read %s: %w", cfgPath, err)
 	}

@@ -8,3 +8,14 @@ secret:
   resolver: op
   command: ["op", "read", "{ref}"] # {ref} is replaced with the op:// URI
   env_override: true               # allow <PREFIX>_<SECRET> env to skip the resolver
+  # env: extra environment variables injected into the resolver SUBPROCESS only
+  # (not labctl's own env). Set exactly one source per var: file | value | env.
+  # Example: make `op read` non-interactive via a service-account token without a
+  # global export.
+  # env:
+  #   OP_SERVICE_ACCOUNT_TOKEN:
+  #     file: ~/.config/labctl/sa-token   # read the token from a file (~ and $VARS expand)
+  #   # SOME_OTHER:
+  #   #   value: literal-value            # inline literal (avoid for real secrets)
+  #   # ANOTHER:
+  #   #   env: SOURCE_ENV_VAR             # copy from an existing env var

@@ -41,6 +41,28 @@ var validPaginationStyles = map[string]bool{
 	"fixed-query":      true,
 }
 
+// ValidateConfig checks the global config.yaml for internal consistency. Today
+// it enforces that each secret.env entry sets exactly one source (file, value,
+// or env). It does NOT expand paths or read files — that happens at call time.
+func ValidateConfig(c *Config) error {
+	for name, src := range c.Secret.Env {
+		n := 0
+		if src.File != "" {
+			n++
+		}
+		if src.Value != "" {
+			n++
+		}
+		if src.Env != "" {
+			n++
+		}
+		if n != 1 {
+			return fmt.Errorf("secret.env %q: set exactly one of file|value|env (got %d)", name, n)
+		}
+	}
+	return nil
+}
+
 // Validate checks a service manifest for internal consistency. It does not touch
 // the network or resolve secrets — purely structural (used by `labctl lint`).
 //

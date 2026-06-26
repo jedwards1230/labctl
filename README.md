@@ -67,6 +67,9 @@ named commands; pagination; multi-endpoint).
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. An env override
   (`<PREFIX>_<SECRET>`) skips the resolver for ephemeral devcontainers/CI.
+  `secret.env` injects extra env vars (one-of `file`/`value`/`env`) into the
+  resolver subprocess only — e.g. a non-interactive `op` via a service-account
+  token without a global export.
 - **Unopinionated executor.** The binary gates nothing — no `--read-only`, no
   write-confirm. It does exactly what the manifest says. Guardrails belong in the
   consuming layer (e.g. an agent-host pre-call hook), not baked into the tool.

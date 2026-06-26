@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -83,6 +84,66 @@ func TestExecuteDryRunNoNetwork(t *testing.T) {
 	}
 	if !strings.Contains(res.DryRunMsg, "X-Api-Key: <redacted>") {
 		t.Fatalf("dry-run should preview a redacted auth header: %q", res.DryRunMsg)
+	}
+}
+
+// TestExecuteDryRun_DoesNotReadSecretEnv proves a configured secret.env file
+// source is NOT read on a dry-run. The path is guaranteed-missing; if the env
+// were built eagerly the read would error.
+func TestExecuteDryRun_DoesNotReadSecretEnv(t *testing.T) {
+	svc := newService("https://movies.lilbro.cloud")
+	cmds := command.FromManifest(svc)
+	res, err := Execute(context.Background(), Request{
+		Config: manifest.Config{Secret: manifest.SecretResolver{
+			Command: []string{"op", "read", "{ref}"},
+			Env: map[string]manifest.SecretEnvSource{
+				"OP_SERVICE_ACCOUNT_TOKEN": {File: "/nonexistent/labctl-sa-token-DOES-NOT-EXIST"},
+			},
+		}},
+		Service: svc,
+		Command: cmds["list"],
+		Runner:  func([]string) (string, error) { return "", errBoom },
+		Flags:   Flags{DryRun: true},
+		Getenv:  func(string) string { return "" },
+	}, nil)
+	if err != nil {
+		t.Fatalf("dry-run must not read secret.env files: %v", err)
+	}
+	if res.DryRunMsg == "" {
+		t.Fatal("expected a non-empty dry-run message")
+	}
+}
+
+// TestVerbose_DoesNotLeakInjectedEnv asserts an injected secret.env value never
+// appears in the verbose (-v) stderr stream.
+func TestVerbose_DoesNotLeakInjectedEnv(t *testing.T) {
+	const sentinel = "super-secret-sa-token-sentinel"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	svc := newService(srv.URL)
+	cmds := command.FromManifest(svc)
+	var stderr bytes.Buffer
+	_, err := Execute(context.Background(), Request{
+		Config: manifest.Config{Secret: manifest.SecretResolver{
+			Command: []string{"op", "read", "{ref}"},
+			Env: map[string]manifest.SecretEnvSource{
+				"OP_SERVICE_ACCOUNT_TOKEN": {Value: sentinel},
+			},
+		}},
+		Service: svc,
+		Command: cmds["list"],
+		Runner:  fakeOp,
+		Flags:   Flags{Verbose: true},
+		Getenv:  func(string) string { return "" },
+	}, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stderr.String(), sentinel) {
+		t.Fatalf("injected secret.env value leaked into verbose output:\n%s", stderr.String())
 	}
 }
 

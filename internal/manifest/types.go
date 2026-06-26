@@ -18,12 +18,21 @@ type Defaults struct {
 	Output  string `yaml:"output"`  // json | raw | scalar (table deferred)
 }
 
+// SecretEnvSource is one extra environment variable injected into the resolver
+// subprocess only. Exactly one of File/Value/Env must be set.
+type SecretEnvSource struct {
+	File  string `yaml:"file"`
+	Value string `yaml:"value"`
+	Env   string `yaml:"env"`
+}
+
 // SecretResolver describes the external tool that turns a ref into a value.
 // Default: `op read {ref}`.
 type SecretResolver struct {
-	Resolver    string   `yaml:"resolver"`     // label only ("op")
-	Command     []string `yaml:"command"`      // argv; {ref} is substituted
-	EnvOverride bool     `yaml:"env_override"` // allow <PREFIX>_<FIELD> env to skip the resolver
+	Resolver    string                     `yaml:"resolver"`     // label only ("op")
+	Command     []string                   `yaml:"command"`      // argv; {ref} is substituted
+	EnvOverride bool                       `yaml:"env_override"` // allow <PREFIX>_<FIELD> env to skip the resolver
+	Env         map[string]SecretEnvSource `yaml:"env"`          // extra env vars injected into the resolver subprocess only
 }
 
 // Service is one services/<name>.yaml manifest.

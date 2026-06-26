@@ -1,6 +1,9 @@
 package secret
 
 import (
+	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -112,5 +115,128 @@ func TestUndeclaredSecret(t *testing.T) {
 	r := New(resolverSpec(), map[string]manifest.Secret{}, "", func([]string) (string, error) { return "", nil })
 	if _, err := r.Secret("nope"); err == nil {
 		t.Fatal("expected error for undeclared secret")
+	}
+}
+
+func TestBuildResolverEnv_FileSource(t *testing.T) {
+	readFile := func(path string) ([]byte, error) {
+		if path != "/etc/sa-token" {
+			t.Fatalf("unexpected path %q", path)
+		}
+		return []byte("tok\n"), nil // trailing whitespace must be trimmed
+	}
+	spec := map[string]manifest.SecretEnvSource{
+		"OP_SERVICE_ACCOUNT_TOKEN": {File: "/etc/sa-token"},
+	}
+	out, err := buildResolverEnv(spec, func(string) string { return "" }, readFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0] != "OP_SERVICE_ACCOUNT_TOKEN=tok" {
+		t.Fatalf("got %v, want [OP_SERVICE_ACCOUNT_TOKEN=tok]", out)
+	}
+}
+
+func TestBuildResolverEnv_ValueSource(t *testing.T) {
+	spec := map[string]manifest.SecretEnvSource{"FOO": {Value: "bar"}}
+	out, err := buildResolverEnv(spec, func(string) string { return "" }, failingReadFile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0] != "FOO=bar" {
+		t.Fatalf("got %v, want [FOO=bar]", out)
+	}
+}
+
+func TestBuildResolverEnv_EnvSource(t *testing.T) {
+	getenv := func(k string) string {
+		if k == "SRC_VAR" {
+			return "from-env"
+		}
+		return ""
+	}
+	spec := map[string]manifest.SecretEnvSource{"DEST": {Env: "SRC_VAR"}}
+	out, err := buildResolverEnv(spec, getenv, failingReadFile(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 || out[0] != "DEST=from-env" {
+		t.Fatalf("got %v, want [DEST=from-env]", out)
+	}
+}
+
+func TestBuildResolverEnv_FileMissing(t *testing.T) {
+	readFile := func(string) ([]byte, error) { return nil, fmt.Errorf("no such file") }
+	spec := map[string]manifest.SecretEnvSource{"OP_SERVICE_ACCOUNT_TOKEN": {File: "/nope"}}
+	out, err := buildResolverEnv(spec, func(string) string { return "" }, readFile)
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+	if !strings.Contains(err.Error(), "OP_SERVICE_ACCOUNT_TOKEN") {
+		t.Fatalf("error %q should name the var", err)
+	}
+	if out != nil {
+		t.Fatalf("expected nil output on error, got %v", out)
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home dir: %v", err)
+	}
+	getenv := func(k string) string {
+		if k == "HOME" {
+			return home
+		}
+		return ""
+	}
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"tilde-slash", "~/x", home + "/x"},
+		{"home-var", "$HOME/x", home + "/x"},
+		{"absolute-untouched", "/etc/token", "/etc/token"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := expandPath(tc.in, getenv); got != tc.want {
+				t.Fatalf("expandPath(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecRunnerEnvInjected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh-based subprocess test is POSIX-only")
+	}
+	env := append(os.Environ(), "INJECT=secret-value")
+	out, err := execRunnerEnv([]string{"/bin/sh", "-c", `printf %s "$INJECT"`}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "secret-value" {
+		t.Fatalf("subprocess saw INJECT=%q, want secret-value", out)
+	}
+	// The replaced env must still carry PATH (os.Environ() was the base).
+	path, err := execRunnerEnv([]string{"/bin/sh", "-c", `printf %s "$PATH"`}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path == "" {
+		t.Fatal("subprocess lost PATH — env was replaced without os.Environ() base")
+	}
+}
+
+// failingReadFile returns a readFile that fails the test if called — used to
+// prove non-file sources never touch the filesystem.
+func failingReadFile(t *testing.T) func(string) ([]byte, error) {
+	t.Helper()
+	return func(path string) ([]byte, error) {
+		t.Fatalf("readFile must not be called for a non-file source (got %q)", path)
+		return nil, nil
 	}
 }

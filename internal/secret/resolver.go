@@ -26,18 +26,22 @@ type Resolver struct {
 	getenv  func(string) string
 	run     Runner
 	cache   map[string]string
+
+	// extraEnv is the resolver subprocess's full environment (os.Environ() plus
+	// the manifest's secret.env injections), built lazily and memoized so files
+	// are never read on a dry-run that resolves no secrets.
+	extraEnv  []string
+	extraOnce bool
+	extraErr  error
 }
 
 // New builds a resolver for a service. envPrefix enables <PREFIX>_<FIELD>
 // overrides; runner defaults to exec when nil.
 func New(spec manifest.SecretResolver, secrets map[string]manifest.Secret, envPrefix string, runner Runner) *Resolver {
-	if runner == nil {
-		runner = execRunner
-	}
 	if len(spec.Command) == 0 {
 		spec.Command = append([]string(nil), manifest.DefaultResolverCommand...)
 	}
-	return &Resolver{
+	r := &Resolver{
 		spec:    spec,
 		secrets: secrets,
 		prefix:  envPrefix,
@@ -45,6 +49,44 @@ func New(spec manifest.SecretResolver, secrets map[string]manifest.Secret, envPr
 		run:     runner,
 		cache:   map[string]string{},
 	}
+	if r.run == nil {
+		// Default runner: exec with the resolver-subprocess env injected. The
+		// closure captures r so it can lazily build the env at first resolve —
+		// never on a dry-run that resolves nothing.
+		r.run = func(argv []string) (string, error) {
+			env, err := r.resolverEnv()
+			if err != nil {
+				return "", err
+			}
+			return execRunnerEnv(argv, env)
+		}
+	}
+	return r
+}
+
+// resolverEnv returns the full environment for the resolver subprocess,
+// memoized. It is os.Environ() with the manifest's secret.env injections
+// appended (so injected vars win on a duplicate name). Files are read here, at
+// first use — not in New.
+func (r *Resolver) resolverEnv() ([]string, error) {
+	if r.extraOnce {
+		return r.extraEnv, r.extraErr
+	}
+	r.extraOnce = true
+	extra, err := buildResolverEnv(r.spec.Env, r.getenv, os.ReadFile)
+	if err != nil {
+		r.extraErr = err
+		return nil, err
+	}
+	if len(extra) == 0 {
+		// No injections: leave cmd.Env unset so the subprocess inherits ours.
+		r.extraEnv = nil
+		return nil, nil
+	}
+	// GOTCHA: setting cmd.Env REPLACES the whole environment, so we must start
+	// from os.Environ() and append — otherwise the resolver loses PATH/HOME.
+	r.extraEnv = append(os.Environ(), extra...)
+	return r.extraEnv, nil
 }
 
 // withGetenv overrides the env lookup (tests).
@@ -183,15 +225,62 @@ func parseOpRef(ref string) (vault, item, field string, err error) {
 	return parts[0], parts[1], parts[2], nil
 }
 
-func execRunner(argv []string) (string, error) {
+// execRunnerEnv runs the resolver argv. When env is non-nil it REPLACES the
+// subprocess environment wholesale (callers must pass a complete os.Environ()
+// plus their additions); a nil env inherits labctl's environment.
+func execRunnerEnv(argv, env []string) (string, error) {
 	if len(argv) == 0 {
 		return "", fmt.Errorf("empty resolver command")
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stderr = os.Stderr // let op print its own diagnostics (session expired, etc.)
+	if env != nil {
+		cmd.Env = env
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return strings.TrimRight(string(out), "\n"), nil
+}
+
+// buildResolverEnv builds the NAME=value entries injected into the resolver
+// subprocess from the manifest's secret.env map. It is pure (no globals): file
+// reads and env lookups go through the injected funcs. Exactly one source per
+// entry is expected — config validation enforces that earlier.
+func buildResolverEnv(spec map[string]manifest.SecretEnvSource, getenv func(string) string,
+	readFile func(string) ([]byte, error)) ([]string, error) {
+	if len(spec) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(spec))
+	for name, src := range spec {
+		var val string
+		switch {
+		case src.File != "":
+			b, err := readFile(expandPath(src.File, getenv))
+			if err != nil {
+				return nil, fmt.Errorf("secret.env %q: read file: %w", name, err)
+			}
+			val = strings.TrimSpace(string(b))
+		case src.Value != "":
+			val = src.Value
+		case src.Env != "":
+			val = getenv(src.Env)
+		default:
+			return nil, fmt.Errorf("secret.env %q: no source set", name)
+		}
+		out = append(out, name+"="+val)
+	}
+	return out, nil
+}
+
+// expandPath expands a leading ~ (home dir) and any $VAR references using getenv.
+func expandPath(p string, getenv func(string) string) string {
+	if strings.HasPrefix(p, "~/") || p == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = home + strings.TrimPrefix(p, "~")
+		}
+	}
+	return os.Expand(p, getenv)
 }
