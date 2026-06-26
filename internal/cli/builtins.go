@@ -20,6 +20,7 @@ func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadE
 	root.AddCommand(r.cmdDoctor(loaded))
 	root.AddCommand(r.cmdMCP())
 	root.AddCommand(r.cmdVersion())
+	root.AddCommand(r.cmdSelfUpdate())
 }
 
 func (r *runner) cmdList(loaded *manifest.Loaded, loadErr error) *cobra.Command {

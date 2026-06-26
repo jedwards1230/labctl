@@ -16,6 +16,17 @@ go install github.com/jedwards1230/labctl@latest
 
 Or grab a static binary from the releases page.
 
+### Updating
+
+Once installed, update in place to the latest release (downloads the matching
+`labctl-{os}-{arch}` asset, verifies its sha256, and atomically replaces the
+running binary):
+
+```sh
+labctl self-update            # update to the latest release
+labctl self-update --check    # report current vs latest, download nothing
+```
+
 ## Quick start
 
 `labctl` reads manifests from `$XDG_CONFIG_HOME/labctl` (or `~/.config/labctl`):

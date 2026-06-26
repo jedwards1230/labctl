@@ -67,7 +67,8 @@ and is where span-per-tool-call + metrics earn their keep.
 Phase 1 (done): http transport; none/header-key/bearer/basic auth; scheme-dispatched
 secrets-provider interface (op:// → 1Password provider, with optional
 service-account-token env injection into the `op` subprocess) + env override;
-generic verbs; gojq output; XDG load; `list`/`lint`/`doctor`. Adding a provider is
+generic verbs; gojq output; XDG load; `list`/`lint`/`doctor`/`self-update` (sha256-verified
+in-place binary update from the GitHub release). Adding a provider is
 three edits in `internal/secret/provider.go` (new `Provider`, a config block, a
 `NewRegistry` case) — dispatch is by URI scheme, so no engine/cli changes.
 
