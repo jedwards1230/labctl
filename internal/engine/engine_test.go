@@ -459,6 +459,97 @@ func TestExecuteDryRun_DoesNotReadSecretToken(t *testing.T) {
 	}
 }
 
+// TestExecuteDryRunWS_DoesNotResolveSecrets proves a jsonrpc-ws dry-run never
+// resolves secrets: the failing resolver is never invoked, and the preview shows
+// the raw templated command params with a redacted auth line.
+func TestExecuteDryRunWS_DoesNotResolveSecrets(t *testing.T) {
+	svc := &manifest.Service{
+		Name:      "truenas",
+		BaseURL:   "wss://nas.lilbro.cloud/api/current",
+		Transport: "jsonrpc-ws",
+		Auth: manifest.Auth{
+			Strategy: "ws-login",
+			Method:   "auth.login_with_api_key",
+			Params:   []string{"{secret.api_key}"},
+		},
+		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://homelab/TrueNAS/api_key"}},
+		Commands: map[string]manifest.Command{
+			"info": {Method: "system.info", Params: `["{secret.api_key}"]`},
+		},
+	}
+	cmds := command.FromManifest(svc)
+	// Resolver that errors if called — dry-run must not invoke it.
+	failOp := func([]string) (string, error) { return "", errBoom }
+	res, err := Execute(context.Background(), Request{
+		Config:  manifest.Config{},
+		Service: svc,
+		Command: cmds["info"],
+		Runner:  failOp,
+		Flags:   Flags{DryRun: true},
+		Getenv:  func(string) string { return "" },
+	}, nil)
+	if err != nil {
+		t.Fatalf("ws dry-run should not error: %v", err)
+	}
+	if !strings.Contains(res.DryRunMsg, "WS wss://nas.lilbro.cloud/api/current") {
+		t.Fatalf("missing WS target: %q", res.DryRunMsg)
+	}
+	if !strings.Contains(res.DryRunMsg, `auth: auth.login_with_api_key ["<redacted>"]`) {
+		t.Fatalf("auth line not redacted: %q", res.DryRunMsg)
+	}
+	if !strings.Contains(res.DryRunMsg, "call: system.info") {
+		t.Fatalf("missing call line: %q", res.DryRunMsg)
+	}
+	// The preview shows the raw template, never the resolved secret.
+	if !strings.Contains(res.DryRunMsg, `["{secret.api_key}"]`) {
+		t.Fatalf("ws dry-run should print raw templated params: %q", res.DryRunMsg)
+	}
+}
+
+// TestExecuteDryRunHTTP_DoesNotResolveBodySecret proves an http dry-run with a
+// {secret.X} in a command header/body never invokes the resolver and previews
+// the pre-expansion templated values.
+func TestExecuteDryRunHTTP_DoesNotResolveBodySecret(t *testing.T) {
+	svc := &manifest.Service{
+		Name:      "svc",
+		BaseURL:   "https://api.example.com",
+		EnvPrefix: "SVC",
+		Auth:      manifest.Auth{Strategy: "none"},
+		Secrets:   map[string]manifest.Secret{"token": {Ref: "op://homelab/Svc/token"}},
+		Commands: map[string]manifest.Command{
+			"push": {
+				Method:  "POST",
+				Path:    "/v1/push",
+				Headers: map[string]string{"X-Token": "{secret.token}"},
+				Body:    `{"token":"{secret.token}"}`,
+			},
+		},
+	}
+	cmds := command.FromManifest(svc)
+	failOp := func([]string) (string, error) { return "", errBoom }
+	res, err := Execute(context.Background(), Request{
+		Config:  manifest.Config{},
+		Service: svc,
+		Command: cmds["push"],
+		Runner:  failOp,
+		Flags:   Flags{DryRun: true},
+		Getenv:  func(string) string { return "" },
+	}, nil)
+	if err != nil {
+		t.Fatalf("http dry-run should not error: %v", err)
+	}
+	if !strings.Contains(res.DryRunMsg, "POST https://api.example.com/v1/push") {
+		t.Fatalf("missing request line: %q", res.DryRunMsg)
+	}
+	// Header and body show the raw template, never the resolved secret.
+	if !strings.Contains(res.DryRunMsg, "X-Token: {secret.token}") {
+		t.Fatalf("http dry-run should print the templated header: %q", res.DryRunMsg)
+	}
+	if !strings.Contains(res.DryRunMsg, `{"token":"{secret.token}"}`) {
+		t.Fatalf("http dry-run should print the templated body: %q", res.DryRunMsg)
+	}
+}
+
 type boom struct{}
 
 func (boom) Error() string { return "boom" }

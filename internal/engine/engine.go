@@ -132,6 +132,22 @@ func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *c
 		url += "?" + query
 	}
 
+	authSpec := svc.Auth
+	if ep.Auth != nil {
+		authSpec = *ep.Auth
+	}
+
+	// Resolve the response codec: command-level overrides endpoint-level.
+	responseCodec := resolveResponseCodec(cmd, ep)
+
+	// Dry-run must resolve NO secrets: return before expandHeaders/resolveBody
+	// (which run template expansion over header/body values). The preview shows
+	// the pre-expansion templated header/body; auth stays redacted.
+	if req.Flags.DryRun {
+		preview := mergeAuthPreview(cmd.Headers, authSpec, cmd.NoAuth)
+		return &Result{DryRunMsg: dryRun(cmd.Method, url, preview, []byte(cmd.Body)), Output: cmd.Output, ResponseCodec: responseCodec}, nil
+	}
+
 	headers, err := expandHeaders(cmd.Headers, tmplEnv)
 	if err != nil {
 		return nil, err
@@ -142,19 +158,7 @@ func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *c
 		return nil, err
 	}
 
-	authSpec := svc.Auth
-	if ep.Auth != nil {
-		authSpec = *ep.Auth
-	}
 	applier := auth.New(authSpec, tmplEnv)
-
-	// Resolve the response codec: command-level overrides endpoint-level.
-	responseCodec := resolveResponseCodec(cmd, ep)
-
-	if req.Flags.DryRun {
-		preview := mergeAuthPreview(headers, authSpec, cmd.NoAuth)
-		return &Result{DryRunMsg: dryRun(cmd.Method, url, preview, body), Output: cmd.Output, ResponseCodec: responseCodec}, nil
-	}
 
 	var verbose io.Writer
 	if req.Flags.Verbose {
@@ -198,6 +202,30 @@ func executeJSONRPCWS(ctx context.Context, req Request, svc *manifest.Service, c
 		authSpec = *ep.Auth
 	}
 
+	// Resolve the base URL (secret-free) so dry-run can preview the target
+	// without resolving any auth/command params.
+	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
+	if err != nil {
+		return nil, err
+	}
+
+	// Dry-run must resolve NO secrets: return before expanding the auth params
+	// (which carry {secret.X}) and the command params. The preview shows the raw
+	// templated command params; auth stays redacted.
+	if req.Flags.DryRun {
+		params := cmd.Params
+		if params == "" {
+			params = "[]"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "WS %s\n", wsURL)
+		if !cmd.NoAuth {
+			fmt.Fprintf(&b, "auth: %s [\"<redacted>\"]\n", authSpec.Method)
+		}
+		fmt.Fprintf(&b, "call: %s %s\n", cmd.Method, params)
+		return &Result{DryRunMsg: b.String(), Output: cmd.Output}, nil
+	}
+
 	// Resolve auth params by expanding each template in the auth spec.
 	var resolvedAuthParams []string
 	if !cmd.NoAuth {
@@ -218,25 +246,6 @@ func executeJSONRPCWS(ctx context.Context, req Request, svc *manifest.Service, c
 			return nil, fmt.Errorf("expand params: %w", err)
 		}
 		resolvedParams = []byte(expanded)
-	}
-
-	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
-	if err != nil {
-		return nil, err
-	}
-
-	if req.Flags.DryRun {
-		params := string(resolvedParams)
-		if params == "" {
-			params = "[]"
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "WS %s\n", wsURL)
-		if !cmd.NoAuth {
-			fmt.Fprintf(&b, "auth: %s [\"<redacted>\"]\n", authSpec.Method)
-		}
-		fmt.Fprintf(&b, "call: %s %s\n", cmd.Method, params)
-		return &Result{DryRunMsg: b.String(), Output: cmd.Output}, nil
 	}
 
 	var verbose io.Writer
