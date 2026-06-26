@@ -87,10 +87,27 @@ func writeCache(path, token string, expiresIn int) error {
 	if err != nil {
 		return fmt.Errorf("marshal token cache: %w", err)
 	}
-	// Write to a temp file and rename for atomicity.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	// Write to a UNIQUE temp file then rename for atomicity. A unique name (not a
+	// shared "<path>.tmp") is required so concurrent cold-cache writers for the
+	// same key never clobber each other's in-progress temp file.
+	f, err := os.CreateTemp(filepath.Dir(path), ".token-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create token cache temp: %w", err)
+	}
+	tmp := f.Name()
+	if err := f.Chmod(0600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("chmod token cache temp: %w", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmp)
 		return fmt.Errorf("write token cache: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("close token cache temp: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp) // best-effort cleanup
