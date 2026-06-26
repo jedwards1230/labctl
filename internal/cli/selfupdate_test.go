@@ -254,6 +254,28 @@ func TestSelfUpdateMissingAssetIsUsageError(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateMissingSHA256IsUsageError(t *testing.T) {
+	// Binary asset is present but its .sha256 sidecar is missing — same
+	// non-transient platform/packaging class as a missing binary (exit 2).
+	f := newFakeGH(t, &fakeGH{goos: "linux", goarch: "amd64", tag: "v0.5.0", assetBytes: []byte("NEW"), omitSha: true})
+	exe := makeExe(t, "OLD")
+	u, _, _ := updaterFor(t, f, "v0.4.0", exe)
+
+	err := u.run(selfUpdateOpts{})
+	if err == nil {
+		t.Fatal("expected usage error for missing .sha256 sibling, got nil")
+	}
+	if got := classify(err); got != exitUsage {
+		t.Fatalf("classify = %d, want %d (usage)", got, exitUsage)
+	}
+	if !strings.Contains(err.Error(), ".sha256") {
+		t.Fatalf("error = %v, want it to mention the missing .sha256", err)
+	}
+	if b, _ := os.ReadFile(exe); string(b) != "OLD" {
+		t.Fatalf("missing-sha path modified the binary: %q", b)
+	}
+}
+
 func TestSelfUpdatePinnedVersionHitsTagsPath(t *testing.T) {
 	f := newFakeGH(t, &fakeGH{goos: "linux", goarch: "amd64", tag: "v0.3.0", assetBytes: []byte("PINNED")})
 	exe := makeExe(t, "OLD")

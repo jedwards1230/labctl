@@ -130,7 +130,9 @@ func (u *selfUpdater) run(opts selfUpdateOpts) error {
 	}
 	shaAsset, ok := findAsset(rel.Assets, assetName+".sha256")
 	if !ok {
-		return fmt.Errorf("release %s asset %q has no .sha256 sibling to verify against", tag, assetName)
+		// A release lacking the .sha256 sidecar can't be installed here — same
+		// non-transient platform/packaging class as a missing binary (exit 2).
+		return &usageError{fmt.Sprintf("release %s asset %q has no .sha256 sibling to verify against", tag, assetName)}
 	}
 
 	_, _ = fmt.Fprintf(u.stderr, "resolving %s...\ndownloading %s...\n", tag, assetName)
