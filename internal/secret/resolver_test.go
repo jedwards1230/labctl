@@ -2,11 +2,51 @@ package secret
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
+
+// TestResolverOpFailureIsAuthError proves a provider/`op` failure surfaces as a
+// *secret.AuthError so classify() maps it to exit 3 — parity with the
+// auth-strategy path, regardless of whether the secret is consumed via
+// body/query/path/header/params.
+func TestResolverOpFailureIsAuthError(t *testing.T) {
+	failOp := func([]string) (string, error) { return "", fmt.Errorf("op: session expired") }
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{"k": {Ref: "op://a/b/c"}}, "", failOp)
+	r.withGetenv(func(string) string { return "" })
+	_, err := r.Secret("k")
+	var ae *AuthError
+	if !errors.As(err, &ae) {
+		t.Fatalf("err = %T (%v), want *secret.AuthError", err, err)
+	}
+}
+
+// TestResolverEmptyIsAuthError proves a runner that returns "" maps to AuthError.
+func TestResolverEmptyIsAuthError(t *testing.T) {
+	emptyOp := func([]string) (string, error) { return "", nil }
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{"k": {Ref: "op://a/b/c"}}, "", emptyOp)
+	r.withGetenv(func(string) string { return "" })
+	_, err := r.Secret("k")
+	var ae *AuthError
+	if !errors.As(err, &ae) {
+		t.Fatalf("err = %T (%v), want *secret.AuthError for empty resolution", err, err)
+	}
+}
+
+// TestResolverUndeclaredIsConfigError proves an undeclared-secret reference maps
+// to *secret.ConfigError (exit 2), not a plain error (exit 1).
+func TestResolverUndeclaredIsConfigError(t *testing.T) {
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{}, "", func([]string) (string, error) { return "x", nil })
+	_, err := r.Secret("nope")
+	var ce *ConfigError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %T (%v), want *secret.ConfigError", err, err)
+	}
+}
 
 // legacyCfg builds a Config using the legacy top-level secret: block, exercising
 // the back-compat normalization path (legacy → single op provider).

@@ -72,6 +72,51 @@ commands:
 	}
 }
 
+// TestDispatchSecretFailureExit3 proves a credential failure routed through a
+// QUERY-param secret exits 3 (auth), matching the auth-strategy path. The secret
+// resolver command points at a nonexistent binary so the failure is hermetic —
+// no real `op`, no network (the resolver fails before any request is sent).
+func TestDispatchSecretFailureExit3(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	// config.yaml: a secret resolver command that cannot run.
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(`
+secret:
+  command: ["labctl-test-no-such-op-binary"]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	writeService(t, dir, "radarr", `
+name: radarr
+base_url: `+srv.URL+`
+auth:
+  strategy: none
+secrets:
+  api_key:
+    ref: op://homelab/Radarr/api_key
+commands:
+  list:
+    method: GET
+    path: /api/v3/movie
+    query: apikey={secret.api_key}
+`)
+	t.Setenv("LABCTL_CONFIG_DIR", dir)
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"radarr", "list"}, &out, &errb); code != exitAuth {
+		t.Fatalf("exit = %d, want %d (auth) (stderr: %s)", code, exitAuth, errb.String())
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("server hit %d times, want 0 (secret must fail before the request)", hits.Load())
+	}
+}
+
 // TestDispatchRawOutput asserts that `-o raw` bypasses the command's default
 // filter and prints the verbatim response body.
 func TestDispatchRawOutput(t *testing.T) {
