@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,6 +79,44 @@ func TestNetworkError(t *testing.T) {
 	var ne *NetworkError
 	if !errors.As(err, &ne) {
 		t.Fatalf("want *NetworkError, got %T: %v", err, err)
+	}
+}
+
+// TestDoHTTPResponseSizeLimit proves a body larger than MaxResponseBytes fails
+// with a *NetworkError, while a body at/under the limit succeeds.
+func TestDoHTTPResponseSizeLimit(t *testing.T) {
+	const limit = 16
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo the requested size from the query.
+		n := 0
+		_, _ = fmt.Sscanf(r.URL.Query().Get("n"), "%d", &n)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), n))
+	}))
+	defer srv.Close()
+
+	// Over the limit → NetworkError.
+	_, err := DoHTTP(HTTPRequest{
+		Method: "GET", URL: srv.URL + "?n=64", Timeout: 5 * time.Second,
+		Auth: noAuthApplier(), MaxResponseBytes: limit,
+	})
+	var ne *NetworkError
+	if !errors.As(err, &ne) {
+		t.Fatalf("over-limit: want *NetworkError, got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("over-limit error = %q, want an 'exceeded' message", err.Error())
+	}
+
+	// Exactly at the limit → success.
+	body, err := DoHTTP(HTTPRequest{
+		Method: "GET", URL: srv.URL + "?n=16", Timeout: 5 * time.Second,
+		Auth: noAuthApplier(), MaxResponseBytes: limit,
+	})
+	if err != nil {
+		t.Fatalf("at-limit: unexpected error: %v", err)
+	}
+	if len(body) != limit {
+		t.Fatalf("at-limit: body len = %d, want %d", len(body), limit)
 	}
 }
 

@@ -17,6 +17,9 @@ type Config struct {
 type Defaults struct {
 	Timeout string `yaml:"timeout"` // Go duration string, e.g. "60s"
 	Output  string `yaml:"output"`  // json | raw | scalar (table deferred)
+	// MaxResponseBytes bounds an HTTP response body (bytes). 0 = use the built-in
+	// default (64 MiB). Guards against a hostile/broken endpoint exhausting memory.
+	MaxResponseBytes int64 `yaml:"max_response_bytes"`
 }
 
 // SecretResolver describes the external tool that turns a ref into a value.

@@ -225,17 +225,18 @@ func runStep(
 	}
 
 	httpReq := transport.HTTPRequest{
-		Ctx:         ctx,
-		Method:      method,
-		URL:         url,
-		Headers:     headers,
-		Body:        body,
-		ContentType: contentType,
-		TLSInsecure: ep.TLSInsecure || svc.TLSInsecure,
-		Timeout:     svc.TimeoutDuration(),
-		Auth:        applier,
-		Verbose:     verbose,
-		Redact:      scrubFromEnv(stepEnv),
+		Ctx:              ctx,
+		Method:           method,
+		URL:              url,
+		Headers:          headers,
+		Body:             body,
+		ContentType:      contentType,
+		TLSInsecure:      ep.TLSInsecure || svc.TLSInsecure,
+		Timeout:          svc.TimeoutDuration(),
+		Auth:             applier,
+		Verbose:          verbose,
+		Redact:           scrubFromEnv(stepEnv),
+		MaxResponseBytes: req.Config.Defaults.MaxResponseBytes,
 	}
 
 	respBody, respHeaders, err := transport.DoHTTPWithHeaders(httpReq)

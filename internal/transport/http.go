@@ -32,7 +32,16 @@ type HTTPRequest struct {
 	NoAuth      bool
 	Verbose     io.Writer           // non-nil → write request/response diagnostics (secrets redacted)
 	Redact      func(string) string // nil = identity; strips resolved secret values from diagnostics
+	// MaxResponseBytes bounds the response body read; <=0 uses the default
+	// (defaultMaxResponseBytes). A larger body fails with a *NetworkError so a
+	// hostile/broken endpoint cannot exhaust memory.
+	MaxResponseBytes int64
 }
+
+// defaultMaxResponseBytes caps the response body when a request leaves
+// MaxResponseBytes unset. 64 MiB is generous for homelab JSON and >= the
+// jsonrpc-ws per-frame cap (16 MiB).
+const defaultMaxResponseBytes int64 = 64 << 20
 
 // applyRedact runs f over s when f is non-nil, else returns s unchanged. It lets
 // the transport scrub resolved secret values out of any diagnostic string (URL,
@@ -117,9 +126,18 @@ func DoHTTPWithHeaders(r HTTPRequest) ([]byte, http.Header, error) {
 		return nil, nil, &NetworkError{err}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	maxBytes := r.MaxResponseBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxResponseBytes
+	}
+	// Read at most maxBytes+1 so we can detect an over-limit body without
+	// buffering it all.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return nil, nil, &NetworkError{err}
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, nil, &NetworkError{fmt.Errorf("response exceeded %d bytes", maxBytes)}
 	}
 
 	if r.Verbose != nil {

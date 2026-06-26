@@ -170,6 +170,9 @@ func applyConfigDefaults(c *Config) {
 	if c.Defaults.Output == "" {
 		c.Defaults.Output = "json"
 	}
+	if c.Defaults.MaxResponseBytes == 0 {
+		c.Defaults.MaxResponseBytes = 64 << 20 // 64 MiB
+	}
 	if len(c.Secret.Command) == 0 {
 		c.Secret.Command = append([]string(nil), DefaultResolverCommand...)
 	}

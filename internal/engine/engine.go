@@ -168,17 +168,18 @@ func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *c
 
 	// Build the per-page HTTP request template (captures all resolved fields).
 	httpReq := transport.HTTPRequest{
-		Ctx:         ctx,
-		Method:      cmd.Method,
-		Headers:     headers,
-		Body:        body,
-		ContentType: contentType,
-		TLSInsecure: ep.TLSInsecure || svc.TLSInsecure,
-		Timeout:     svc.TimeoutDuration(),
-		Auth:        applier,
-		NoAuth:      cmd.NoAuth,
-		Verbose:     verbose,
-		Redact:      scrubFromEnv(tmplEnv),
+		Ctx:              ctx,
+		Method:           cmd.Method,
+		Headers:          headers,
+		Body:             body,
+		ContentType:      contentType,
+		TLSInsecure:      ep.TLSInsecure || svc.TLSInsecure,
+		Timeout:          svc.TimeoutDuration(),
+		Auth:             applier,
+		NoAuth:           cmd.NoAuth,
+		Verbose:          verbose,
+		Redact:           scrubFromEnv(tmplEnv),
+		MaxResponseBytes: req.Config.Defaults.MaxResponseBytes,
 	}
 
 	pg := cmd.Pagination
