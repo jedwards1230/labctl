@@ -15,6 +15,7 @@ import (
 )
 
 func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadErr error) {
+	root.AddCommand(r.cmdInit())
 	root.AddCommand(r.cmdList(loaded, loadErr))
 	root.AddCommand(r.cmdLint(loaded, loadErr))
 	root.AddCommand(r.cmdDoctor(loaded))
@@ -149,16 +150,28 @@ func probeSkip(svc *manifest.Service) (string, bool) {
 }
 
 func (r *runner) cmdMCP() *cobra.Command {
-	return &cobra.Command{
+	var readOnly bool
+	var services []string
+	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "serve manifests as MCP tools over stdio",
+		Long: "Serve every non-ignored command as an MCP tool over stdio.\n\n" +
+			"--read-only omits write tools entirely; --service restricts the tool set\n" +
+			"to the named service(s). Both filters compose.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if r.loaded == nil || len(r.loaded.Services) == 0 {
 				return fmt.Errorf("no services configured; add manifests under %s/services/", manifest.ConfigDir())
 			}
-			return mcpserver.Serve(cmd.Context(), r.loaded, r.config, Version, r.tracer, r.stderr)
+			if err := mcpserver.ValidateServices(r.loaded, services); err != nil {
+				return &usageError{err.Error()}
+			}
+			opts := mcpserver.Options{ReadOnly: readOnly, Services: services}
+			return mcpserver.Serve(cmd.Context(), r.loaded, r.config, Version, r.tracer, r.stderr, opts)
 		},
 	}
+	cmd.Flags().BoolVar(&readOnly, "read-only", false, "expose only read tools; skip every write command")
+	cmd.Flags().StringSliceVar(&services, "service", nil, "restrict tools to these service(s); repeatable or comma-separated (default: all)")
+	return cmd
 }
 
 func (r *runner) cmdVersion() *cobra.Command {

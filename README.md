@@ -56,6 +56,8 @@ labctl radarr list --filter 'length'
 labctl radarr list --dry-run      # print the resolved request, send nothing
 labctl doctor                     # probe each service's reachability
 labctl lint                       # validate every manifest
+labctl init myservice             # scaffold a commented starter manifest (stdout)
+labctl init myservice --auth bearer -o services/myservice.yaml
 ```
 
 See [`examples/`](examples/) for fuller manifests (header-key, bearer, basic auth;
@@ -141,8 +143,15 @@ collector as-is); use TLS client certs or your collector's standard auth instead
 Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic`/
 `oauth2-client-credentials`/`ws-login` auth; scheme-dispatched secrets providers
 (1Password today, with optional service-account-token injection) and env
-override; OpenAPI inference (`spec:`); composed `steps:` pipelines; stdio MCP
-server (`labctl mcp`); optional OpenTelemetry tracing.
+override; OpenAPI inference (`spec:`); composed `steps:` pipelines; optional
+OpenTelemetry tracing.
+
+`labctl init <service>` scaffolds a commented starter manifest (pick the auth
+stanza with `--auth`, write a file with `-o`) that validates against `labctl
+lint`. The stdio MCP server (`labctl mcp`) annotates every tool with the
+read-only / destructive / idempotent / open-world hints derived from the
+command, and accepts `--read-only` (omit write tools) and `--service` (restrict
+to named services); both filters compose.
 
 ## Contributing
 

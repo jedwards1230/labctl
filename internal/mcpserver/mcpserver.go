@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	mcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/otel/codes"
@@ -112,14 +113,133 @@ func toolDesc(c *command.Command) string {
 	return c.Help
 }
 
+// toolTitle returns a short human-readable label for a tool, e.g.
+// "Radarr: library list (movies)" or "radarr list" when no help is set.
+func toolTitle(svcName, cmdID, help string) string {
+	svc := titleCase(svcName)
+	if clause := firstClause(help); clause != "" {
+		return svc + ": " + clause
+	}
+	return svcName + " " + cmdID
+}
+
+// titleCase uppercases the first rune of s, leaving the rest untouched.
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
+
+// firstClause returns the first sentence/clause of a help string: everything up
+// to the first '.', ',', or newline, trimmed. Empty in → empty out.
+func firstClause(help string) string {
+	help = strings.TrimSpace(help)
+	if i := strings.IndexAny(help, ".,\n"); i >= 0 {
+		return strings.TrimSpace(help[:i])
+	}
+	return help
+}
+
+// boolPtr returns a pointer to b (the SDK's hint fields are *bool so "unset"
+// is distinguishable from "false").
+func boolPtr(b bool) *bool { return &b }
+
+// buildAnnotations derives the MCP tool annotations from a command.
+//
+//   - Read command (c.Write == false): ReadOnlyHint=true. Per the spec the
+//     destructive/idempotent hints are not meaningful when ReadOnlyHint is true,
+//     so they are left unset.
+//   - Write command (c.Write == true): ReadOnlyHint=false, with destructive and
+//     idempotent hints inferred from the HTTP method where one exists:
+//     DELETE/PUT are destructive + idempotent; POST/PATCH are additive + not
+//     idempotent. A write with no HTTP method (a jsonrpc-ws `call`, a multi-step
+//     pipeline) leaves DestructiveHint nil and IdempotentHint at the SDK default
+//     — we don't guess for non-HTTP writes.
+//
+// Every tool sets OpenWorldHint=true: labctl tools call out to external/LAN
+// services, so the domain of interaction is open, not a closed in-process world.
+func buildAnnotations(svcName, cmdID string, c *command.Command) *mcp.ToolAnnotations {
+	ann := &mcp.ToolAnnotations{
+		Title:         toolTitle(svcName, cmdID, c.Help),
+		OpenWorldHint: boolPtr(true),
+	}
+	if !c.Write {
+		ann.ReadOnlyHint = true
+		return ann
+	}
+	ann.ReadOnlyHint = false
+	switch strings.ToUpper(c.Method) {
+	case "DELETE", "PUT":
+		// Full replacement / removal: destructive and idempotent.
+		ann.DestructiveHint = boolPtr(true)
+		ann.IdempotentHint = true
+	case "POST", "PATCH":
+		// Additive / partial: not destructive, not idempotent.
+		ann.DestructiveHint = boolPtr(false)
+		ann.IdempotentHint = false
+	default:
+		// Non-HTTP write (jsonrpc-ws call, pipeline): leave at SDK defaults.
+	}
+	return ann
+}
+
+// Options controls which tools BuildServer registers. The zero value reproduces
+// the original behaviour (every non-ignored command of every service).
+type Options struct {
+	// ReadOnly omits every write command (c.Write == true) from the tool set.
+	ReadOnly bool
+	// Services, when non-empty, restricts the tool set to these service names;
+	// every other service is omitted. Empty = all services.
+	Services []string
+}
+
+// allowed reports whether a service name passes the Options.Services allowlist.
+func (o Options) allowed(svcName string) bool {
+	if len(o.Services) == 0 {
+		return true
+	}
+	for _, s := range o.Services {
+		if s == svcName {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateServices checks that every name in the allowlist names a loaded
+// service, returning a clear error listing the unknown name(s) and the available
+// services. An empty list is always valid (means "all services").
+func ValidateServices(loaded *manifest.Loaded, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	var unknown []string
+	for _, n := range names {
+		if _, ok := loaded.Services[n]; !ok {
+			unknown = append(unknown, n)
+		}
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf("unknown service(s): %s (available: %s)",
+			strings.Join(unknown, ", "),
+			strings.Join(loaded.SortedServiceNames(), ", "))
+	}
+	return nil
+}
+
 // BuildServer constructs an MCP server from the loaded manifests. It is
-// exported so tests can drive the server without stdio.
+// exported so tests can drive the server without stdio. opts filters the tool
+// set (read-only, service allowlist); the zero Options registers everything.
 func BuildServer(
 	loaded *manifest.Loaded,
 	cfg manifest.Config,
 	version string,
 	tracer trace.Tracer,
 	stderr io.Writer,
+	opts Options,
 ) *mcp.Server {
 	if version == "" {
 		version = "dev"
@@ -127,12 +247,18 @@ func BuildServer(
 	srv := mcp.NewServer(&mcp.Implementation{Name: "labctl", Version: version}, nil)
 
 	for _, svcName := range loaded.SortedServiceNames() {
+		if !opts.allowed(svcName) {
+			continue
+		}
 		svc := loaded.Services[svcName]
 		cmds := command.FromManifest(svc)
 
 		for _, id := range command.SortedIDs(cmds) {
 			c := cmds[id]
 			if c.MCPIgnore {
+				continue
+			}
+			if opts.ReadOnly && c.Write {
 				continue
 			}
 
@@ -146,6 +272,7 @@ func BuildServer(
 					Name:        capturedName,
 					Description: toolDesc(c),
 					InputSchema: buildSchema(c),
+					Annotations: buildAnnotations(svcName, id, c),
 				},
 				func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 					return handleCall(ctx, req, capturedSvc, capturedCmd, cfg, tracer, stderr)
@@ -261,7 +388,8 @@ func Serve(
 	version string,
 	tracer trace.Tracer,
 	stderr io.Writer,
+	opts Options,
 ) error {
-	srv := BuildServer(loaded, cfg, version, tracer, stderr)
+	srv := BuildServer(loaded, cfg, version, tracer, stderr, opts)
 	return srv.Run(ctx, &mcp.StdioTransport{})
 }

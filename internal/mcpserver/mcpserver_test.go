@@ -105,7 +105,7 @@ func TestToolListGeneration(t *testing.T) {
 	}
 
 	tracer := noop.NewTracerProvider().Tracer("test")
-	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil)
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{})
 
 	session := connectClientServer(t, srv)
 	ctx := context.Background()
@@ -144,6 +144,115 @@ func TestToolListGeneration(t *testing.T) {
 	}
 }
 
+// filterLoaded builds a two-service Loaded: svc_a (one read GET) and svc_b
+// (one write POST), used by the filter tests below.
+func filterLoaded() *manifest.Loaded {
+	svcA := &manifest.Service{
+		Name:      "svc_a",
+		BaseURL:   "http://example.com",
+		Transport: "http",
+		Commands: map[string]manifest.Command{
+			"read": {Help: "a read", Method: "GET", Path: "/r"},
+		},
+	}
+	svcB := &manifest.Service{
+		Name:      "svc_b",
+		BaseURL:   "http://example.com",
+		Transport: "http",
+		Commands: map[string]manifest.Command{
+			"create": {Help: "a write", Method: "POST", Path: "/c"},
+		},
+	}
+	return &manifest.Loaded{
+		Config: manifest.Config{
+			Secret: manifest.SecretResolver{Command: []string{"op", "read", "{ref}"}},
+		},
+		Services: map[string]*manifest.Service{"svc_a": svcA, "svc_b": svcB},
+	}
+}
+
+// listToolNames connects a client and returns the set of registered tool names.
+func listToolNames(t *testing.T, srv *mcp.Server) map[string]bool {
+	t.Helper()
+	session := connectClientServer(t, srv)
+	names := map[string]bool{}
+	for tool, err := range session.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatalf("Tools iteration: %v", err)
+		}
+		names[tool.Name] = true
+	}
+	return names
+}
+
+// TestBuildServerReadOnly verifies --read-only drops every write tool but keeps
+// reads, and that without it the write tool is present.
+func TestBuildServerReadOnly(t *testing.T) {
+	loaded := filterLoaded()
+	tracer := noop.NewTracerProvider().Tracer("test")
+
+	off := listToolNames(t, mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{}))
+	if !off["svc_b_create"] {
+		t.Error("read-only off: write tool svc_b_create should be registered")
+	}
+
+	on := listToolNames(t, mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{ReadOnly: true}))
+	if on["svc_b_create"] {
+		t.Error("read-only on: write tool svc_b_create must not be registered")
+	}
+	if !on["svc_a_read"] {
+		t.Error("read-only on: read tool svc_a_read should remain")
+	}
+}
+
+// TestBuildServerServiceAllowlist verifies --service exposes only the named
+// service, and that it composes with --read-only.
+func TestBuildServerServiceAllowlist(t *testing.T) {
+	loaded := filterLoaded()
+	tracer := noop.NewTracerProvider().Tracer("test")
+
+	only := listToolNames(t, mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil,
+		mcpserver.Options{Services: []string{"svc_a"}}))
+	if !only["svc_a_read"] {
+		t.Error("allowlist svc_a: svc_a_read should be present")
+	}
+	if only["svc_b_create"] {
+		t.Error("allowlist svc_a: svc_b tools must be omitted")
+	}
+
+	// Allowlist svc_b but read-only → its only command is a write, so zero tools.
+	both := listToolNames(t, mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil,
+		mcpserver.Options{Services: []string{"svc_b"}, ReadOnly: true}))
+	if len(both) != 0 {
+		t.Errorf("allowlist svc_b + read-only: want 0 tools, got %v", both)
+	}
+}
+
+// TestValidateServices verifies the allowlist validation: known names pass,
+// unknown names produce a clear error listing the unknown name and the
+// available services.
+func TestValidateServices(t *testing.T) {
+	loaded := filterLoaded()
+
+	if err := mcpserver.ValidateServices(loaded, nil); err != nil {
+		t.Errorf("empty allowlist should be valid, got %v", err)
+	}
+	if err := mcpserver.ValidateServices(loaded, []string{"svc_a"}); err != nil {
+		t.Errorf("known service should be valid, got %v", err)
+	}
+	err := mcpserver.ValidateServices(loaded, []string{"svc_a", "nope"})
+	if err == nil {
+		t.Fatal("unknown service should error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "nope") {
+		t.Errorf("error %q should name the unknown service 'nope'", msg)
+	}
+	if !strings.Contains(msg, "svc_a") || !strings.Contains(msg, "svc_b") {
+		t.Errorf("error %q should list available services", msg)
+	}
+}
+
 // TestToolCallDispatch verifies that a tool call reaches the HTTP endpoint and
 // returns the JSON body as text content.
 func TestToolCallDispatch(t *testing.T) {
@@ -159,7 +268,7 @@ func TestToolCallDispatch(t *testing.T) {
 
 	loaded := buildTestLoaded(ts.URL)
 	tracer := noop.NewTracerProvider().Tracer("test")
-	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil)
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{})
 	session := connectClientServer(t, srv)
 
 	ctx := context.Background()
@@ -195,7 +304,7 @@ func TestToolCallError(t *testing.T) {
 
 	loaded := buildTestLoaded(ts.URL)
 	tracer := noop.NewTracerProvider().Tracer("test")
-	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil)
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{})
 	session := connectClientServer(t, srv)
 
 	ctx := context.Background()
@@ -222,7 +331,7 @@ func TestInitializeToolsListCallHandshake(t *testing.T) {
 
 	loaded := buildTestLoaded(ts.URL)
 	tracer := noop.NewTracerProvider().Tracer("test")
-	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil)
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{})
 	session := connectClientServer(t, srv)
 
 	ctx := context.Background()
