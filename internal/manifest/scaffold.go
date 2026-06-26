@@ -79,7 +79,7 @@ func writeHeader(b *strings.Builder, name string) {
 	b.WriteString("# A service is one YAML file; the binary compiles in zero service-specific\n")
 	b.WriteString("# logic. Fill in the placeholders below, drop this file at\n")
 	fmt.Fprintf(b, "#   ~/.config/labctl/services/%s.yaml\n", name)
-	fmt.Fprintf(b, "# then run `labctl %s status`. Validate any time: `labctl lint <this-file>`.\n\n", name)
+	fmt.Fprintf(b, "# then run `labctl svc %s status`. Validate any time: `labctl lint <this-file>`.\n\n", name)
 	fmt.Fprintf(b, "name: %s\n", name)
 }
 
@@ -183,7 +183,7 @@ func writeCommands(b *strings.Builder, name, auth string) {
 	b.WriteString("commands:\n")
 
 	if auth == "ws-login" {
-		b.WriteString("  # A read command. Run: labctl " + name + " status\n")
+		b.WriteString("  # A read command. Run: labctl svc " + name + " status\n")
 		b.WriteString("  status:\n")
 		b.WriteString("    help: service status / health\n")
 		b.WriteString("    method: system.info        # the jsonrpc method to call\n")
@@ -194,23 +194,23 @@ func writeCommands(b *strings.Builder, name, auth string) {
 		b.WriteString("    method: core.ping\n")
 		b.WriteString("    noauth: true\n")
 		b.WriteString("\n# Generic JSON-RPC passthrough is always available without declaring a command:\n")
-		b.WriteString("#   labctl " + name + " call system.info\n")
-		b.WriteString("#   labctl " + name + " call some.method '[\"arg1\", 42]'\n")
+		b.WriteString("#   labctl svc " + name + " call system.info\n")
+		b.WriteString("#   labctl svc " + name + " call some.method '[\"arg1\", 42]'\n")
 		return
 	}
 
-	b.WriteString("  # A read command (GET). Run: labctl " + name + " status\n")
+	b.WriteString("  # A read command (GET). Run: labctl svc " + name + " status\n")
 	b.WriteString("  status:\n")
 	b.WriteString("    help: service status / health\n")
 	b.WriteString("    method: GET\n")
 	b.WriteString("    path: /api/status\n")
 	b.WriteString("    output: { filter: \".\" }    # optional jq filter over the JSON response\n")
-	b.WriteString("\n  # A read command taking a positional arg: labctl " + name + " get-item 42\n")
+	b.WriteString("\n  # A read command taking a positional arg: labctl svc " + name + " get-item 42\n")
 	b.WriteString("  get-item:\n")
 	b.WriteString("    help: fetch one item by id\n")
 	b.WriteString("    method: GET\n")
 	b.WriteString("    path: /api/items/{arg.0}\n")
 	b.WriteString("\n# Generic verb passthrough is always available without declaring a command:\n")
-	b.WriteString("#   labctl " + name + " get /api/items\n")
-	b.WriteString("#   labctl " + name + " post /api/items '{\"name\":\"demo\"}'   # a [WRITE] call\n")
+	b.WriteString("#   labctl svc " + name + " get /api/items\n")
+	b.WriteString("#   labctl svc " + name + " post /api/items '{\"name\":\"demo\"}'   # a [WRITE] call\n")
 }

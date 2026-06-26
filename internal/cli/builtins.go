@@ -29,24 +29,31 @@ func (r *runner) cmdList(loaded *manifest.Loaded, loadErr error) *cobra.Command 
 		Use:   "list",
 		Short: "list configured services",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if loadErr != nil {
-				return loadErr
-			}
-			if loaded == nil || len(loaded.Services) == 0 {
-				_, _ = fmt.Fprintf(r.stdout, "No services configured. Add manifests under %s/services/\n", manifest.ConfigDir())
-				return nil
-			}
-			for _, name := range loaded.SortedServiceNames() {
-				svc := loaded.Services[name]
-				if svc.Description != "" {
-					_, _ = fmt.Fprintf(r.stdout, "%-14s %s\n", name, svc.Description)
-				} else {
-					_, _ = fmt.Fprintln(r.stdout, name)
-				}
-			}
-			return nil
+			return r.listServices(loaded, loadErr)
 		},
 	}
+}
+
+// listServices prints the configured services (name + optional description) to
+// stdout. Shared by the `list` builtin and bare `labctl svc`, so both stay in
+// lockstep. An empty config dir is not an error.
+func (r *runner) listServices(loaded *manifest.Loaded, loadErr error) error {
+	if loadErr != nil {
+		return loadErr
+	}
+	if loaded == nil || len(loaded.Services) == 0 {
+		_, _ = fmt.Fprintf(r.stdout, "No services configured. Add manifests under %s/services/\n", manifest.ConfigDir())
+		return nil
+	}
+	for _, name := range loaded.SortedServiceNames() {
+		svc := loaded.Services[name]
+		if svc.Description != "" {
+			_, _ = fmt.Fprintf(r.stdout, "%-14s %s\n", name, svc.Description)
+		} else {
+			_, _ = fmt.Fprintln(r.stdout, name)
+		}
+	}
+	return nil
 }
 
 func (r *runner) cmdLint(loaded *manifest.Loaded, loadErr error) *cobra.Command {

@@ -1,6 +1,8 @@
-// Package cli wires the cobra command tree from the loaded manifests. Each
-// service becomes a subcommand; each named command and generic verb becomes a
-// leaf. The CLI re-reads manifests just-in-time per invocation (no daemon).
+// Package cli wires the cobra command tree from the loaded manifests. Every
+// service is registered under the `svc` parent command (never at the root, so a
+// user-defined service can't collide with a built-in); each named command and
+// generic verb becomes a leaf. The CLI re-reads manifests just-in-time per
+// invocation (no daemon).
 package cli
 
 import (
@@ -115,12 +117,48 @@ func (r *runner) newRoot() *cobra.Command {
 	r.loadErr = loadErr
 
 	r.addBuiltins(root, loaded, loadErr)
+	root.AddCommand(r.newSvcCmd(loaded, loadErr))
+	return root
+}
+
+// newSvcCmd builds the `svc` parent command. Every manifest-derived service
+// command lives under it (never at the root), so a user-defined service can
+// never collide with a built-in. With no service given it lists the configured
+// services — the same content as `labctl list`.
+func (r *runner) newSvcCmd(loaded *manifest.Loaded, loadErr error) *cobra.Command {
+	svcCmd := &cobra.Command{
+		Use:     "svc <service> [command]",
+		Aliases: []string{"s"},
+		Short:   "run a configured service's API commands",
+		Long: "Run a configured service's API commands.\n\n" +
+			"Each service is a manifest under services/; built-ins (init, lint, list,\n" +
+			"doctor, mcp, version, self-update) live at the top level. Bare `labctl svc`\n" +
+			"lists the configured services (same as `labctl list`).",
+		Example: "  labctl svc                      # list configured services\n" +
+			"  labctl svc radarr list          # a named command\n" +
+			"  labctl svc tdarr get /api/v2/status   # generic verb passthrough\n" +
+			"  labctl s radarr list            # `s` is an alias for `svc`",
+		// RunE handles bare `labctl svc` (list services) and an unknown service
+		// argument (usage error). A known service routes to its own subcommand.
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// A failed config load registered no services, so any service
+			// invocation lands here. Surface the real load diagnostic (and its
+			// exit code) instead of a misleading "unknown service".
+			if loadErr != nil {
+				return loadErr
+			}
+			if len(args) > 0 {
+				return &usageError{fmt.Sprintf("unknown service %q", args[0])}
+			}
+			return r.listServices(loaded, loadErr)
+		},
+	}
 	if loaded != nil {
 		for _, name := range loaded.SortedServiceNames() {
-			root.AddCommand(r.newServiceCmd(loaded.Services[name]))
+			svcCmd.AddCommand(r.newServiceCmd(loaded.Services[name]))
 		}
 	}
-	return root
+	return svcCmd
 }
 
 func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
@@ -130,7 +168,7 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 		Short: svc.Description,
 		Long:  serviceHelp(svc, cmds),
 		// RunE is invoked when cobra cannot find a matching subcommand (e.g.
-		// "labctl radarr bogus-cmd"). Any argument here is an unknown command,
+		// "labctl svc radarr bogus-cmd"). Any argument here is an unknown command,
 		// so return a usageError (exit 2) instead of printing help and exiting 0.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {

@@ -48,15 +48,21 @@ base_url: https://tdarr.lilbro.cloud
 auth: { strategy: none }
 ```
 
+Service commands live under `svc` (aliased `s`); built-ins stay at the top
+level. Putting services in their own namespace means a user-defined service can
+never collide with a built-in like `list` or `doctor`:
+
 ```sh
-labctl list                       # all configured services
-labctl tdarr get /api/v2/status   # generic verb passthrough
-labctl tdarr status               # a named command, if the manifest defines one
-labctl radarr list --filter 'length'
-labctl radarr list --dry-run      # print the resolved request, send nothing
-labctl doctor                     # probe each service's reachability
-labctl lint                       # validate every manifest
-labctl init myservice             # scaffold a commented starter manifest (stdout)
+labctl list                           # all configured services (built-in)
+labctl svc                            # same list, under the svc namespace
+labctl svc tdarr get /api/v2/status   # generic verb passthrough
+labctl svc tdarr status               # a named command, if the manifest defines one
+labctl svc radarr list --filter 'length'
+labctl svc radarr list --dry-run      # print the resolved request, send nothing
+labctl s radarr list                  # `s` is shorthand for `svc`
+labctl doctor                         # probe each service's reachability (built-in)
+labctl lint                           # validate every manifest (built-in)
+labctl init myservice                 # scaffold a commented starter manifest (built-in, stdout)
 labctl init myservice --auth bearer -o services/myservice.yaml
 ```
 
@@ -126,7 +132,7 @@ so back-to-back and parallel-agent calls are traceable in Tempo/Jaeger:
 ```sh
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf   # or grpc (default per spec: http/protobuf)
-labctl radarr list
+labctl svc radarr list
 ```
 
 Export is fail-open and flush is time-bounded — a slow or down collector never

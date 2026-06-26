@@ -33,7 +33,7 @@ go build ./...
 # Try against the example manifests without installing
 LABCTL_CONFIG_DIR="$PWD/examples" ./labctl list
 LABCTL_CONFIG_DIR="$PWD/examples" ./labctl lint
-LABCTL_CONFIG_DIR="$PWD/examples" ./labctl --dry-run radarr list
+LABCTL_CONFIG_DIR="$PWD/examples" ./labctl --dry-run svc radarr list
 ```
 
 CI runs `gofmt`, `go vet`, `golangci-lint`, `go mod tidy` check, `go test -race` (with a 75% coverage floor), and `go build`. All checks must pass before a PR can merge.
