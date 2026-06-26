@@ -385,3 +385,51 @@ func TestInitializeToolsListCallHandshake(t *testing.T) {
 		t.Errorf("body[\"pong\"] = %v, want true", body["pong"])
 	}
 }
+
+// TestToolNamesIndependentOfCLITree pins the MCP naming contract: tool names are
+// derived directly from the loaded manifests as <service>_<command> and are
+// unaffected by where the CLI registers service commands in the cobra tree.
+// When services moved from the root to the `svc` parent (a CLI-only change),
+// these names must NOT change — agents wired to `radarr_list`/`tdarr_status`
+// keep working.
+func TestToolNamesIndependentOfCLITree(t *testing.T) {
+	loaded := &manifest.Loaded{
+		Config: manifest.Config{
+			Secret: manifest.SecretResolver{Command: []string{"op", "read", "{ref}"}},
+		},
+		Services: map[string]*manifest.Service{
+			"radarr": {
+				Name:      "radarr",
+				BaseURL:   "http://example.com",
+				Transport: "http",
+				Commands: map[string]manifest.Command{
+					"list": {Help: "list movies", Method: "GET", Path: "/api/v3/movie"},
+				},
+			},
+			"tdarr": {
+				Name:      "tdarr",
+				BaseURL:   "http://example.com",
+				Transport: "http",
+				Commands: map[string]manifest.Command{
+					"status": {Help: "node status", Method: "GET", Path: "/api/v2/status"},
+				},
+			},
+		},
+	}
+
+	tracer := noop.NewTracerProvider().Tracer("test")
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{})
+	names := listToolNames(t, srv)
+
+	for _, want := range []string{"radarr_list", "tdarr_status"} {
+		if !names[want] {
+			t.Errorf("missing MCP tool %q; svc-namespace refactor must not change tool names (got %v)", want, names)
+		}
+	}
+	// And the `svc` prefix from the CLI tree must never leak into a tool name.
+	for name := range names {
+		if strings.HasPrefix(name, "svc_") {
+			t.Errorf("tool %q leaked the CLI `svc` parent into its name", name)
+		}
+	}
+}

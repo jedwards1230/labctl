@@ -43,11 +43,11 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
-// TestRunUnknownServiceExits2 confirms labctl <unknown-service> exits exitUsage.
+// TestRunUnknownServiceExits2 confirms labctl svc <unknown-service> exits exitUsage.
 func TestRunUnknownServiceExits2(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"bogus-service"}, &out, &errb); code != exitUsage {
+	if code := Run([]string{"svc", "bogus-service"}, &out, &errb); code != exitUsage {
 		t.Fatalf("unknown service exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
 	}
 }
@@ -77,7 +77,7 @@ commands:
 	}
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 	var out, errb bytes.Buffer
-	if code := Run([]string{"radarr", "bogus-cmd"}, &out, &errb); code != exitUsage {
+	if code := Run([]string{"svc", "radarr", "bogus-cmd"}, &out, &errb); code != exitUsage {
 		t.Fatalf("unknown subcommand exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
 	}
 }
@@ -130,7 +130,7 @@ secrets:
 	}{
 		{"list", []string{"list"}},
 		{"lint", []string{"lint"}},
-		{"service-command", []string{"radarr", "list"}},
+		{"service-command", []string{"svc", "radarr", "list"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
