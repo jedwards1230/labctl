@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -272,7 +273,12 @@ func TestBadSpecFileError(t *testing.T) {
 	}
 	_, err := InferredCommands(svc, "")
 	if err == nil {
-		t.Error("expected error for nonexistent spec file, got nil")
+		t.Fatal("expected error for nonexistent spec file, got nil")
+	}
+	// A missing spec file is a config error (exit 2).
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("missing spec file should be a *ConfigError, got %T: %v", err, err)
 	}
 }
 
@@ -289,7 +295,12 @@ func TestInvalidYAMLSpecError(t *testing.T) {
 	}
 	_, err := InferredCommands(svc, dir)
 	if err == nil {
-		t.Error("expected error for invalid YAML spec, got nil")
+		t.Fatal("expected error for invalid YAML spec, got nil")
+	}
+	// A readable-but-unparseable document is a decode error (exit 6).
+	var decErr *DecodeError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("unparseable spec should be a *DecodeError, got %T: %v", err, err)
 	}
 }
 
@@ -312,7 +323,12 @@ paths: {}
 	}
 	_, err := InferredCommands(svc, dir)
 	if err == nil {
-		t.Error("expected error for Swagger 2.0 spec, got nil")
+		t.Fatal("expected error for Swagger 2.0 spec, got nil")
+	}
+	// An unsupported spec format is a config error (exit 2).
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("swagger 2.0 should be a *ConfigError, got %T: %v", err, err)
 	}
 }
 
@@ -384,7 +400,35 @@ func TestFetchURLNon200(t *testing.T) {
 	}
 	_, err := InferredCommands(svc, "")
 	if err == nil {
-		t.Error("expected error for HTTP 404, got nil")
+		t.Fatal("expected error for HTTP 404, got nil")
+	}
+	// A non-200 spec fetch is a decode error (exit 6).
+	var decErr *DecodeError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("non-200 spec fetch should be a *DecodeError, got %T: %v", err, err)
+	}
+}
+
+// TestFetchURLGarbageBody proves a 200 response whose body is not a parseable
+// OpenAPI document classifies as a decode error (exit 6).
+func TestFetchURLGarbageBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(":::not an openapi document:::"))
+	}))
+	defer srv.Close()
+
+	svc := &Service{
+		Name:    "x",
+		BaseURL: "http://x.example",
+		Spec:    srv.URL + "/openapi.yaml",
+	}
+	_, err := InferredCommands(svc, "")
+	if err == nil {
+		t.Fatal("expected error for garbage spec body, got nil")
+	}
+	var decErr *DecodeError
+	if !errors.As(err, &decErr) {
+		t.Fatalf("garbage spec body should be a *DecodeError, got %T: %v", err, err)
 	}
 }
 

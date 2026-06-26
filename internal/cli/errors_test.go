@@ -29,6 +29,7 @@ func TestClassifyExitCodes(t *testing.T) {
 		{"decode", &decodeError{errors.New("jq")}, exitDecode},
 		{"secret-config", &secret.ConfigError{Err: errors.New("bad source")}, exitUsage},
 		{"manifest-config", &manifest.ConfigError{Err: errors.New("bad config")}, exitUsage},
+		{"manifest-decode", &manifest.DecodeError{Err: errors.New("bad body")}, exitDecode},
 		{"general", errors.New("other"), exitGeneral},
 	}
 	for _, tt := range tests {

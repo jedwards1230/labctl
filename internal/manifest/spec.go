@@ -79,7 +79,8 @@ func fetchSpec(spec, configDir string) ([]byte, error) {
 	}
 	b, err := os.ReadFile(spec)
 	if err != nil {
-		return nil, fmt.Errorf("read file: %w", err)
+		// A missing/unreadable spec file is a config problem → exit 2.
+		return nil, &ConfigError{Err: fmt.Errorf("read file: %w", err)}
 	}
 	return b, nil
 }
@@ -91,20 +92,24 @@ func fetchURL(u string) ([]byte, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		// A malformed spec URL is a config problem → exit 2.
+		return nil, &ConfigError{Err: fmt.Errorf("build request: %w", err)}
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch: %w", err)
+		// An unreachable spec URL is treated as a config problem (the manifest
+		// points at a spec that does not resolve), not a runtime network error.
+		return nil, &ConfigError{Err: fmt.Errorf("fetch: %w", err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch returned HTTP %d", resp.StatusCode)
+		// The endpoint answered but did not return the document → decode (exit 6).
+		return nil, &DecodeError{Err: fmt.Errorf("fetch returned HTTP %d", resp.StatusCode)}
 	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return nil, &DecodeError{Err: fmt.Errorf("read body: %w", err)}
 	}
 	return b, nil
 }
@@ -123,18 +128,21 @@ type specOp struct {
 func parseOperations(raw []byte) ([]specOp, error) {
 	doc, err := libopenapi.NewDocument(raw)
 	if err != nil {
-		return nil, fmt.Errorf("parse document: %w", err)
+		// Unparseable document bytes → decode (exit 6).
+		return nil, &DecodeError{Err: fmt.Errorf("parse document: %w", err)}
 	}
 
-	// Reject Swagger 2.0 — we only support OpenAPI 3.x.
+	// Reject Swagger 2.0 — we only support OpenAPI 3.x. This is a config decision
+	// (the manifest points at an unsupported spec format), not a decode failure.
 	ver := doc.GetSpecInfo().SpecType
 	if ver == "swagger" {
-		return nil, fmt.Errorf("swagger 2.0 is not supported; spec: requires OpenAPI 3.x")
+		return nil, &ConfigError{Err: fmt.Errorf("swagger 2.0 is not supported; spec: requires OpenAPI 3.x")}
 	}
 
 	model, err := doc.BuildV3Model()
 	if err != nil {
-		return nil, fmt.Errorf("build model: %w", err)
+		// A well-formed document that fails to build a v3 model → decode (exit 6).
+		return nil, &DecodeError{Err: fmt.Errorf("build model: %w", err)}
 	}
 	if model == nil || model.Model.Paths == nil || model.Model.Paths.PathItems == nil {
 		return nil, nil // empty spec is valid

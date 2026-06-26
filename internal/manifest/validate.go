@@ -42,12 +42,24 @@ var validPaginationStyles = map[string]bool{
 }
 
 // Validate checks a service manifest for internal consistency. It does not touch
-// the network or resolve secrets — purely structural (used by `labctl lint`).
+// the network or resolve secrets — purely structural (used by `labctl lint`). Any
+// failure is wrapped in *ConfigError so callers classify it to the usage exit
+// code (2), regardless of entry point.
 //
 // Note: when spec: is set, this function validates the field value's syntax but
 // does NOT load the document (that happens at load time via InferredCommands). A
 // manifest with an unreachable spec: passes lint but fails at load/use time.
 func Validate(s *Service) error {
+	if err := validate(s); err != nil {
+		return &ConfigError{Err: err}
+	}
+	return nil
+}
+
+// validate is the unwrapped structural check. Validate wraps its result in
+// *ConfigError; keeping the body separate avoids double-wrapping at the many
+// internal fmt.Errorf call sites.
+func validate(s *Service) error {
 	if s.BaseURL == "" && len(s.Endpoints) == 0 {
 		return fmt.Errorf("service must set base_url or at least one endpoint")
 	}
@@ -185,6 +197,15 @@ type ConfigError struct{ Err error }
 
 func (e *ConfigError) Error() string { return e.Err.Error() }
 func (e *ConfigError) Unwrap() error { return e.Err }
+
+// DecodeError marks a spec/response decode failure (exit 6). It mirrors the
+// transport-layer decode classification so that load-time decode failures (a
+// non-200 spec fetch, an unparseable OpenAPI document) classify to the same exit
+// code as a runtime decode error.
+type DecodeError struct{ Err error }
+
+func (e *DecodeError) Error() string { return e.Err.Error() }
+func (e *DecodeError) Unwrap() error { return e.Err }
 
 // ValidateConfig checks the global config's secrets providers for consistency:
 // each provider's scheme must be known, and a service_account_token (if set)

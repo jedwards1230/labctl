@@ -47,6 +47,7 @@ func classify(err error) int {
 	var secretAuthErr *secret.AuthError
 	var secretCfgErr *secret.ConfigError
 	var manifestCfgErr *manifest.ConfigError
+	var manifestDecErr *manifest.DecodeError
 	switch {
 	case errors.As(err, &useErr):
 		return exitUsage
@@ -54,6 +55,8 @@ func classify(err error) int {
 		return exitUsage
 	case errors.As(err, &manifestCfgErr):
 		return exitUsage
+	case errors.As(err, &manifestDecErr):
+		return exitDecode
 	case errors.As(err, &secretAuthErr):
 		return exitAuth
 	case errors.As(err, &authErr):
