@@ -24,6 +24,22 @@ func New(a manifest.Auth, env template.Env) Applier {
 	return Applier{auth: a, env: env}
 }
 
+// CredentialHeader returns the name of the header this strategy writes the
+// credential into, or "" when the credential does not land in a header (none/
+// ws-login, or an unknown strategy). It resolves no secret — a pure lookup used
+// by verbose output to redact exactly the credential-bearing header, including
+// header-key's arbitrary header name (e.g. X-Plex-Token).
+func (a Applier) CredentialHeader() string {
+	switch a.auth.Strategy {
+	case "header-key":
+		return a.auth.Header
+	case "bearer", "basic", "oauth2-client-credentials":
+		return "Authorization"
+	default:
+		return ""
+	}
+}
+
 // Apply mutates req to carry the credential. For strategy "none" it is a no-op.
 // noAuth (a per-command override) forces the no-op.
 func (a Applier) Apply(req *http.Request, noAuth bool) error {

@@ -84,7 +84,13 @@ func DoHTTPWithHeaders(r HTTPRequest) ([]byte, http.Header, error) {
 	}
 
 	if r.Verbose != nil {
-		writeVerboseRequest(r.Verbose, req, r.Body)
+		// Redact exactly the header the auth strategy just wrote the credential
+		// into (header-key allows an arbitrary header name like X-Plex-Token).
+		secretHeader := ""
+		if !r.NoAuth {
+			secretHeader = r.Auth.CredentialHeader()
+		}
+		writeVerboseRequest(r.Verbose, req, r.Body, secretHeader)
 	}
 
 	client := &http.Client{Timeout: r.Timeout}
@@ -155,11 +161,11 @@ func extractError(body []byte) string {
 	return string(trimmed)
 }
 
-func writeVerboseRequest(w io.Writer, req *http.Request, body []byte) {
+func writeVerboseRequest(w io.Writer, req *http.Request, body []byte, secretHeader string) {
 	_, _ = fmt.Fprintf(w, "> %s %s\n", req.Method, req.URL.String())
 	for k, vals := range req.Header {
 		for _, v := range vals {
-			_, _ = fmt.Fprintf(w, "> %s: %s\n", k, RedactHeader(k, v))
+			_, _ = fmt.Fprintf(w, "> %s: %s\n", k, RedactHeader(k, v, secretHeader))
 		}
 	}
 	if len(body) > 0 {
@@ -168,11 +174,21 @@ func writeVerboseRequest(w io.Writer, req *http.Request, body []byte) {
 }
 
 // RedactHeader hides credential-bearing header values in verbose/dry-run output.
-func RedactHeader(key, val string) string {
+// It always redacts the standard credential-bearing headers (authorization,
+// cookie, proxy-authorization), plus any secretHeaders the caller names — used to
+// redact the exact header the active auth strategy wrote (header-key's header may
+// be arbitrary, e.g. X-Plex-Token). A manually-declared header that is not the
+// active credential prints as-is — the unopinionated executor does not guess at
+// which custom headers carry secrets.
+func RedactHeader(key, val string, secretHeaders ...string) string {
 	switch strings.ToLower(key) {
-	case "authorization", "x-api-key", "x-n8n-api-key", "cookie", "proxy-authorization":
+	case "authorization", "cookie", "proxy-authorization":
 		return "<redacted>"
-	default:
-		return val
 	}
+	for _, h := range secretHeaders {
+		if h != "" && strings.EqualFold(key, h) {
+			return "<redacted>"
+		}
+	}
+	return val
 }

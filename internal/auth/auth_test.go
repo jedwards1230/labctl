@@ -159,3 +159,26 @@ func TestApplyWSLoginNoOp(t *testing.T) {
 		t.Errorf("ws-login Apply: want nil, got %v", err)
 	}
 }
+
+func TestCredentialHeader(t *testing.T) {
+	tests := []struct {
+		name string
+		auth manifest.Auth
+		want string
+	}{
+		{"header-key uses its arbitrary header", manifest.Auth{Strategy: "header-key", Header: "X-Plex-Token"}, "X-Plex-Token"},
+		{"bearer uses Authorization", manifest.Auth{Strategy: "bearer"}, "Authorization"},
+		{"basic uses Authorization", manifest.Auth{Strategy: "basic"}, "Authorization"},
+		{"oauth2 uses Authorization", manifest.Auth{Strategy: "oauth2-client-credentials"}, "Authorization"},
+		{"none has no credential header", manifest.Auth{Strategy: "none"}, ""},
+		{"ws-login has no credential header", manifest.Auth{Strategy: "ws-login"}, ""},
+		{"empty strategy has no credential header", manifest.Auth{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := New(tt.auth, template.Env{}).CredentialHeader(); got != tt.want {
+				t.Errorf("CredentialHeader() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -1,9 +1,11 @@
 package transport
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,11 +82,70 @@ func TestNetworkError(t *testing.T) {
 }
 
 func TestRedactHeader(t *testing.T) {
-	if RedactHeader("Authorization", "Bearer x") != "<redacted>" {
-		t.Error("Authorization not redacted")
+	// The always-redact set: authorization, cookie, proxy-authorization (no args).
+	for _, k := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		if RedactHeader(k, "secret-value") != "<redacted>" {
+			t.Errorf("%s not redacted with zero extra args", k)
+		}
 	}
 	if RedactHeader("Accept", "application/json") != "application/json" {
 		t.Error("Accept should not be redacted")
+	}
+	// A header is redacted only when named as a secretHeader.
+	if RedactHeader("X-Plex-Token", "tok") != "tok" {
+		t.Error("X-Plex-Token should print when not named as a credential header")
+	}
+	if RedactHeader("X-Plex-Token", "tok", "X-Plex-Token") != "<redacted>" {
+		t.Error("named secret header should redact (case-sensitive match)")
+	}
+	if RedactHeader("x-plex-token", "tok", "X-Plex-Token") != "<redacted>" {
+		t.Error("named secret header should redact case-insensitively")
+	}
+	// An empty secretHeader name must not redact everything.
+	if RedactHeader("X-Custom", "val", "") != "val" {
+		t.Error("empty secretHeader name should not redact")
+	}
+	// x-api-key is no longer auto-redacted (dropped from the static list).
+	if RedactHeader("X-Api-Key", "k3y") != "k3y" {
+		t.Error("X-Api-Key should print when not the active credential (no longer in static list)")
+	}
+}
+
+// TestVerboseRedactsAuthHeaderKey proves -v redacts exactly the header the
+// header-key strategy wrote (an arbitrary name like X-Plex-Token), while a
+// manually-declared header carrying a value still prints in full.
+func TestVerboseRedactsAuthHeaderKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	applier := auth.New(
+		manifest.Auth{Strategy: "header-key", Header: "X-Plex-Token", Value: "{secret.token}"},
+		template.Env{Secrets: stubResolver{"token": "PLEX-SECRET"}},
+	)
+	var verbose bytes.Buffer
+	_, err := DoHTTP(HTTPRequest{
+		Method:  "GET",
+		URL:     srv.URL,
+		Headers: map[string]string{"X-Custom": "plain-visible"},
+		Timeout: 5 * time.Second,
+		Auth:    applier,
+		Verbose: &verbose,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := verbose.String()
+	if strings.Contains(out, "PLEX-SECRET") {
+		t.Fatalf("verbose output leaked the token:\n%s", out)
+	}
+	if !strings.Contains(out, "X-Plex-Token: <redacted>") {
+		t.Fatalf("auth credential header not redacted:\n%s", out)
+	}
+	// A manually-declared header that is not the credential still prints.
+	if !strings.Contains(out, "X-Custom: plain-visible") {
+		t.Fatalf("non-credential header should print in full:\n%s", out)
 	}
 }
 
