@@ -41,12 +41,13 @@ type globalFlags struct {
 }
 
 type runner struct {
-	flags  globalFlags
-	stdout io.Writer
-	stderr io.Writer
-	config manifest.Config
-	loaded *manifest.Loaded
-	tracer trace.Tracer
+	flags   globalFlags
+	stdout  io.Writer
+	stderr  io.Writer
+	config  manifest.Config
+	loaded  *manifest.Loaded
+	loadErr error
+	tracer  trace.Tracer
 
 	curService string
 	curCommand string
@@ -67,7 +68,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if err := root.Execute(); err != nil {
 		// Cobra's "unknown command" / "unknown flag" errors are usage errors (exit 2).
 		if isUnknownCommandError(err) {
-			err = &usageError{err.Error()}
+			// When the config dir failed to load, no service commands were
+			// registered, so a service invocation degrades to "unknown
+			// command". Surface the real load diagnostic (and its exit code)
+			// instead of the misleading cobra message.
+			if r.loadErr != nil {
+				err = r.loadErr
+			} else {
+				err = &usageError{err.Error()}
+			}
 		}
 		return reportError(stderr, err, r.flags.jsonErrors, r.curService, r.curCommand)
 	}
@@ -103,6 +112,7 @@ func (r *runner) newRoot() *cobra.Command {
 		r.config = loaded.Config
 		r.loaded = loaded
 	}
+	r.loadErr = loadErr
 
 	r.addBuiltins(root, loaded, loadErr)
 	if loaded != nil {

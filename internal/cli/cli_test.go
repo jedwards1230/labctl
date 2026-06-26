@@ -81,3 +81,70 @@ commands:
 		t.Fatalf("unknown subcommand exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
 	}
 }
+
+// TestRunConfigValidationErrorExits2 confirms a config.yaml validation failure
+// (a service_account_token with two sources set) classifies to exit 2 and
+// surfaces its real diagnostic — consistently across list, lint, and a service
+// command — instead of exit 1 or a misleading "no manifests loaded".
+func TestRunConfigValidationErrorExits2(t *testing.T) {
+	dir := t.TempDir()
+	svcDir := filepath.Join(dir, "services")
+	if err := os.MkdirAll(svcDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// A valid service manifest exists, but the broken config.yaml fails the
+	// whole load before any service registers.
+	svcManifest := []byte(`
+name: radarr
+base_url: http://localhost
+auth:
+  strategy: none
+commands:
+  list:
+    method: GET
+    path: /api/v3/movie
+`)
+	if err := os.WriteFile(filepath.Join(svcDir, "radarr.yaml"), svcManifest, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// service_account_token sets two sources (file + value) → exactly-one-of.
+	configYAML := []byte(`
+secrets:
+  providers:
+    onepassword:
+      scheme: op
+      auth:
+        service_account_token:
+          file: /tmp/token
+          value: literal-token
+`)
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), configYAML, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LABCTL_CONFIG_DIR", dir)
+
+	const wantDiag = "set exactly one of file|value|env (found 2)"
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"list", []string{"list"}},
+		{"lint", []string{"lint"}},
+		{"service-command", []string{"radarr", "list"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errb bytes.Buffer
+			code := Run(tc.args, &out, &errb)
+			if code != exitUsage {
+				t.Fatalf("exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
+			}
+			if !strings.Contains(errb.String(), wantDiag) {
+				t.Fatalf("stderr = %q, want to contain %q", errb.String(), wantDiag)
+			}
+			if strings.Contains(errb.String(), "no manifests loaded") {
+				t.Fatalf("stderr surfaced misleading 'no manifests loaded': %q", errb.String())
+			}
+		})
+	}
+}
