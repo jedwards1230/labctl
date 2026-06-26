@@ -1,8 +1,12 @@
 package manifest
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/itchyny/gojq"
 )
 
 var validTransports = map[string]bool{
@@ -104,7 +108,7 @@ func validate(s *Service) error {
 
 func validateCommand(id string, c Command, s *Service) error {
 	if len(c.Steps) > 0 {
-		return nil // composed command — step shape validated at execution (Phase 3)
+		return validateSteps(id, c, s)
 	}
 	if c.Method == "" {
 		return fmt.Errorf("command %q must set method", id)
@@ -119,6 +123,78 @@ func validateCommand(id string, c Command, s *Service) error {
 	}
 	if !validPaginationStyles[c.Pagination.Style] {
 		return fmt.Errorf("command %q: unknown pagination style %q (want none|cursor|page-number|page-until-short|fixed-query)", id, c.Pagination.Style)
+	}
+	// A jsonrpc-ws command's params must be a JSON array (template-tolerant).
+	if transportOf(s.Transport) == "jsonrpc-ws" && c.Params != "" {
+		if err := validateJSONRPCParams(id, c.Params); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// templateToken matches a {…} template segment so JSON-array shape checks can
+// tolerate non-JSON template grammar like [{arg.0}].
+var templateToken = regexp.MustCompile(`\{[^}]*\}`)
+
+// validateJSONRPCParams checks that a jsonrpc-ws command's params is a JSON
+// array. Template tokens are replaced with a placeholder first, so [{arg.0}]
+// (valid per the template grammar but not valid JSON) passes, while a non-array
+// like "{not an array}" fails.
+func validateJSONRPCParams(id, params string) error {
+	normalized := templateToken.ReplaceAllString(params, "0")
+	var arr []any
+	if err := json.Unmarshal([]byte(normalized), &arr); err != nil {
+		return &ConfigError{Err: fmt.Errorf("command %q: params must be a JSON array: %w", id, err)}
+	}
+	return nil
+}
+
+// validateSteps validates each step of a composed (pipeline) command.
+func validateSteps(id string, c Command, s *Service) error {
+	for i, step := range c.Steps {
+		stepID := step.ID
+		if stepID == "" {
+			stepID = fmt.Sprintf("step[%d]", i)
+		}
+		if err := validateStep(id, stepID, step, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateStep validates one pipeline step (and recursively its on_error step):
+// a named endpoint must exist, the step must target a path or endpoint, and every
+// jq expression (extract/when/body_transform) must parse.
+func validateStep(cmdID, stepID string, step Step, s *Service) error {
+	if step.Endpoint != "" {
+		if _, ok := s.Endpoints[step.Endpoint]; !ok {
+			return &ConfigError{Err: fmt.Errorf("command %q %s: references unknown endpoint %q", cmdID, stepID, step.Endpoint)}
+		}
+	}
+	if step.Path == "" && step.Endpoint == "" {
+		return &ConfigError{Err: fmt.Errorf("command %q %s: must set path or endpoint", cmdID, stepID)}
+	}
+	for varName, expr := range step.Extract {
+		if _, err := gojq.Parse(expr); err != nil {
+			return &ConfigError{Err: fmt.Errorf("command %q %s: extract %q: invalid jq %q: %w", cmdID, stepID, varName, expr, err)}
+		}
+	}
+	if step.When != "" {
+		if _, err := gojq.Parse(step.When); err != nil {
+			return &ConfigError{Err: fmt.Errorf("command %q %s: when: invalid jq %q: %w", cmdID, stepID, step.When, err)}
+		}
+	}
+	if step.BodyTransform != "" {
+		if _, err := gojq.Parse(step.BodyTransform); err != nil {
+			return &ConfigError{Err: fmt.Errorf("command %q %s: body_transform: invalid jq %q: %w", cmdID, stepID, step.BodyTransform, err)}
+		}
+	}
+	if step.OnError != nil {
+		if err := validateStep(cmdID, stepID+".on_error", *step.OnError, s); err != nil {
+			return err
+		}
 	}
 	return nil
 }
