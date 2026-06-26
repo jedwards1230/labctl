@@ -144,6 +144,10 @@ Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic
 override; OpenAPI inference (`spec:`); composed `steps:` pipelines; stdio MCP
 server (`labctl mcp`); optional OpenTelemetry tracing.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, build and test commands, branching conventions, and release process.
+
 ## License
 
 MIT. Studies patterns from [`rest-sh/restish`](https://github.com/rest-sh/restish)
