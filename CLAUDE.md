@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@CONTRIBUTING.md
+
 Guidance for Claude Code in this repository.
 
 ## What this is
@@ -18,22 +20,6 @@ The binary **gates nothing** — no `--read-only`, no write-confirm, no MCP
 write-gating. It does exactly what the manifest says. Guardrails belong in the
 consuming layer (an agent-host pre-call hook), not baked into the tool. Don't add
 safety/policy logic here.
-
-## Commands
-
-```bash
-go build -o labctl .
-go test ./...                 # unit tests (httptest + fake `op` runner)
-go test -race ./...
-gofmt -l . && go vet ./...     # CI gates these (plus `go mod tidy` clean)
-
-# Run against the example manifests without installing:
-LABCTL_CONFIG_DIR="$PWD/examples" ./labctl list
-LABCTL_CONFIG_DIR="$PWD/examples" ./labctl lint
-LABCTL_CONFIG_DIR="$PWD/examples" ./labctl --dry-run radarr list
-```
-
-Go floor: **1.25** (see `go.mod`).
 
 ## Architecture
 
