@@ -63,6 +63,10 @@ func executePipeline(
 	}
 	accVars["env"] = envMap
 
+	// One resolver for the whole pipeline: shares the secret cache across steps
+	// and carries ctx into the op subprocess once.
+	res := secret.New(ctx, req.Config, svc.Secrets, svc.EnvPrefix, req.Runner)
+
 	for i, step := range cmd.Steps {
 		stepID := step.ID
 		if stepID == "" {
@@ -76,7 +80,6 @@ func executePipeline(
 
 		// Build merged vars for this step: accVars (as strings) overlay base service vars.
 		mergedVars := accVarsToStrings(baseVars, accVars)
-		res := secret.New(req.Config, svc.Secrets, svc.EnvPrefix, req.Runner)
 		stepEnv := template.Env{
 			Vars:    mergedVars,
 			Args:    baseTmplEnv.Args,

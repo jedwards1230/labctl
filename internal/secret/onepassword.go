@@ -39,17 +39,17 @@ func newOnePassword(cfg manifest.ProviderConfig, runner Runner) *OnePassword {
 func (p *OnePassword) Scheme() string { return "op" }
 
 // Resolve turns an op:// ref into its value, honoring idiom and field fallback.
-// ctx is accepted for the Provider contract; the op CLI shells out per call.
-func (p *OnePassword) Resolve(_ context.Context, ref Ref) (string, error) {
+// ctx carries cancellation/deadline into the op subprocess on the real-exec path.
+func (p *OnePassword) Resolve(ctx context.Context, ref Ref) (string, error) {
 	idiom := ref.Idiom
 	if idiom == "" {
 		idiom = "read"
 	}
 	switch idiom {
 	case "read":
-		return p.resolveRead(ref)
+		return p.resolveRead(ctx, ref)
 	case "item-get", "item-json":
-		return p.resolveItem(ref, idiom)
+		return p.resolveItem(ctx, ref, idiom)
 	default:
 		return "", &ConfigError{Err: fmt.Errorf("unknown idiom %q", idiom)}
 	}
@@ -59,7 +59,7 @@ func (p *OnePassword) Resolve(_ context.Context, ref Ref) (string, error) {
 // fallback it tries each candidate (replacing the ref's final segment) until one
 // returns non-empty. An all-empty result returns ("", nil); the caller maps that
 // to the "resolved empty" error.
-func (p *OnePassword) resolveRead(ref Ref) (string, error) {
+func (p *OnePassword) resolveRead(ctx context.Context, ref Ref) (string, error) {
 	refs := []string{ref.URI}
 	if len(ref.Fields) > 0 {
 		refs = refs[:0]
@@ -70,7 +70,7 @@ func (p *OnePassword) resolveRead(ref Ref) (string, error) {
 	var lastErr error
 	for _, r := range refs {
 		argv := substituteRef(p.command, r)
-		out, err := p.exec(argv)
+		out, err := p.exec(ctx, argv)
 		if err != nil {
 			lastErr = err
 			continue
@@ -87,7 +87,7 @@ func (p *OnePassword) resolveRead(ref Ref) (string, error) {
 
 // resolveItem builds an op-specific `item get` argv. The ref is parsed as
 // op://<vault>/<item>/<field>.
-func (p *OnePassword) resolveItem(ref Ref, idiom string) (string, error) {
+func (p *OnePassword) resolveItem(ctx context.Context, ref Ref, idiom string) (string, error) {
 	vault, item, field, err := parseOpRef(ref.URI)
 	if err != nil {
 		return "", err
@@ -101,13 +101,14 @@ func (p *OnePassword) resolveItem(ref Ref, idiom string) (string, error) {
 		argv = []string{"op", "item", "get", item, "--vault", vault, "--format", "json", "--reveal"}
 		_ = field
 	}
-	return p.exec(argv)
+	return p.exec(ctx, argv)
 }
 
 // exec runs argv via the injected runner (tests) or the real op CLI. On the real
 // path it lazily resolves the service-account token and injects it into the
-// child process env; a nil/empty token inherits the ambient op session.
-func (p *OnePassword) exec(argv []string) (string, error) {
+// child process env; a nil/empty token inherits the ambient op session. ctx is
+// not plumbed into the test runner (the Runner seam is intentionally ctx-free).
+func (p *OnePassword) exec(ctx context.Context, argv []string) (string, error) {
 	if p.run != nil {
 		return p.run(argv)
 	}
@@ -115,17 +116,18 @@ func (p *OnePassword) exec(argv []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return execWithEnv(argv, tok)
+	return execWithEnv(ctx, argv, tok)
 }
 
 // execWithEnv mirrors the default exec runner, additionally injecting the
 // service-account token into the child environment when non-empty. The token
-// goes into the process env only — never argv, never any writer.
-func execWithEnv(argv []string, tok string) (string, error) {
+// goes into the process env only — never argv, never any writer. ctx cancellation
+// kills the op subprocess.
+func execWithEnv(ctx context.Context, argv []string, tok string) (string, error) {
 	if len(argv) == 0 {
 		return "", fmt.Errorf("empty resolver command")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stderr = os.Stderr // let op print its own diagnostics (session expired, etc.)
 	if tok != "" {
 		// cmd.Env replaces the whole environment, so start from os.Environ().

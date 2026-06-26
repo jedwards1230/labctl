@@ -32,11 +32,15 @@ type Resolver struct {
 	cache       map[string]string
 }
 
-// New builds a resolver for a service. cfg supplies the (normalized) secrets
-// providers; envPrefix enables <PREFIX>_<NAME> overrides; runner stubs `op` in
-// tests (nil = real exec). Normalizing here means hand-built Configs (tests, the
-// legacy `secret:` block) work without going through Load.
-func New(cfg manifest.Config, secrets map[string]manifest.Secret, envPrefix string, runner Runner) *Resolver {
+// New builds a resolver for a service. ctx carries cancellation/deadline into the
+// provider's subprocess (a nil ctx defaults to context.Background()); cfg supplies
+// the (normalized) secrets providers; envPrefix enables <PREFIX>_<NAME> overrides;
+// runner stubs `op` in tests (nil = real exec). Normalizing here means hand-built
+// Configs (tests, the legacy `secret:` block) work without going through Load.
+func New(ctx context.Context, cfg manifest.Config, secrets map[string]manifest.Secret, envPrefix string, runner Runner) *Resolver {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	sc := manifest.NormalizeSecrets(cfg)
 	envOverride := false
 	if sc.EnvOverride != nil {
@@ -48,7 +52,7 @@ func New(cfg manifest.Config, secrets map[string]manifest.Secret, envPrefix stri
 		prefix:      envPrefix,
 		getenv:      os.Getenv,
 		envOverride: envOverride,
-		ctx:         context.Background(),
+		ctx:         ctx,
 		cache:       map[string]string{},
 	}
 }

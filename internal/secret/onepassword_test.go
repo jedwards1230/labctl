@@ -1,10 +1,12 @@
 package secret
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
@@ -117,6 +119,31 @@ func TestWithTokenAppendsOnceNoMutation(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("token entries = %d, want 1", count)
+	}
+}
+
+// TestResolveContextCanceled proves ctx cancellation reaches the real op
+// subprocess: with a runner-free provider and an already-canceled ctx, the
+// resolver returns promptly with a ctx error instead of blocking on a slow
+// command. Hermetic — `sleep` stands in for `op` so no 1Password session is
+// touched, and exec.CommandContext kills it on cancellation.
+func TestResolveContextCanceled(t *testing.T) {
+	p := newOnePassword(manifest.ProviderConfig{
+		Scheme:  "op",
+		Command: []string{"sleep", "5"},
+	}, nil) // nil runner → real exec path
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // canceled before the call
+
+	start := time.Now()
+	_, err := p.Resolve(ctx, Ref{URI: "op://a/b/c"})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected an error from a canceled ctx")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("Resolve blocked %v; ctx cancellation should return promptly", elapsed)
 	}
 }
 

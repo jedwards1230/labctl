@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func legacyCfg() manifest.Config {
 func TestResolveCaches(t *testing.T) {
 	calls := 0
 	run := func(argv []string) (string, error) { calls++; return "v", nil }
-	r := New(legacyCfg(), map[string]manifest.Secret{"k": {Ref: "op://a/b/c"}}, "", run)
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{"k": {Ref: "op://a/b/c"}}, "", run)
 	r.withGetenv(func(string) string { return "" })
 	for i := 0; i < 3; i++ {
 		if _, err := r.Secret("k"); err != nil {
@@ -33,7 +34,7 @@ func TestResolveCaches(t *testing.T) {
 func TestEnvOverridePrecedence(t *testing.T) {
 	run := func(argv []string) (string, error) { return "from-op", nil }
 	// Explicit per-secret env wins over the provider.
-	r := New(legacyCfg(), map[string]manifest.Secret{"api_key": {Ref: "op://a/b/c", Env: "RADARR_API_KEY"}}, "RADARR", run)
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{"api_key": {Ref: "op://a/b/c", Env: "RADARR_API_KEY"}}, "RADARR", run)
 	r.withGetenv(func(k string) string {
 		if k == "RADARR_API_KEY" {
 			return "from-env"
@@ -51,7 +52,7 @@ func TestEnvOverridePrecedence(t *testing.T) {
 
 func TestEnvPrefixOverride(t *testing.T) {
 	run := func(argv []string) (string, error) { return "from-op", nil }
-	r := New(legacyCfg(), map[string]manifest.Secret{"api_key": {Ref: "op://a/b/c"}}, "RADARR", run)
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{"api_key": {Ref: "op://a/b/c"}}, "RADARR", run)
 	r.withGetenv(func(k string) string {
 		if k == "RADARR_API_KEY" {
 			return "prefixed"
@@ -65,7 +66,7 @@ func TestEnvPrefixOverride(t *testing.T) {
 }
 
 func TestUndeclaredSecret(t *testing.T) {
-	r := New(legacyCfg(), map[string]manifest.Secret{}, "", func([]string) (string, error) { return "", nil })
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{}, "", func([]string) (string, error) { return "", nil })
 	if _, err := r.Secret("nope"); err == nil {
 		t.Fatal("expected error for undeclared secret")
 	}
@@ -80,7 +81,7 @@ func TestBackCompatLegacyBlock(t *testing.T) {
 	}
 	var gotArgv []string
 	run := func(argv []string) (string, error) { gotArgv = argv; return "from-op", nil }
-	r := New(cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
+	r := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
 
 	// No env set: provider resolves.
 	r.withGetenv(func(string) string { return "" })
@@ -96,7 +97,7 @@ func TestBackCompatLegacyBlock(t *testing.T) {
 	}
 
 	// <PREFIX>_<NAME> override wins (fresh resolver to avoid the cache).
-	r2 := New(cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
+	r2 := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
 	r2.withGetenv(func(k string) string {
 		if k == "RADARR_API_KEY" {
 			return "overridden"

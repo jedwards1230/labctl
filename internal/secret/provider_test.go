@@ -46,7 +46,7 @@ func TestRegistryDispatchOp(t *testing.T) {
 
 func TestUnknownSchemeIsConfigError(t *testing.T) {
 	// A ref whose scheme has no registered provider surfaces a *ConfigError.
-	r := New(manifest.Config{},
+	r := New(context.Background(), manifest.Config{},
 		map[string]manifest.Secret{"k": {Ref: "vault://kv/data/x"}},
 		"", func([]string) (string, error) { return "v", nil })
 	r.withGetenv(func(string) string { return "" })
