@@ -1,7 +1,10 @@
 package manifest
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,11 +50,15 @@ func Load(dir string) (*Loaded, error) {
 	}
 	l := &Loaded{Dir: dir, Services: map[string]*Service{}}
 
-	// Global config (optional).
+	// Global config (optional). The config model is fully closed, so decode
+	// strictly (KnownFields) — a typo'd top-level key is a config error (exit 2)
+	// instead of being silently dropped. An empty file (io.EOF) is valid.
 	cfgPath := filepath.Join(dir, "config.yaml")
 	if b, err := os.ReadFile(cfgPath); err == nil {
-		if err := yaml.Unmarshal(b, &l.Config); err != nil {
-			return nil, fmt.Errorf("parse %s: %w", cfgPath, err)
+		dec := yaml.NewDecoder(bytes.NewReader(b))
+		dec.KnownFields(true)
+		if err := dec.Decode(&l.Config); err != nil && !errors.Is(err, io.EOF) {
+			return nil, &ConfigError{Err: fmt.Errorf("parse %s: %w", cfgPath, err)}
 		}
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("read %s: %w", cfgPath, err)

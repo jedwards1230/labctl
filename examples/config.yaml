@@ -1,7 +1,8 @@
 # labctl global config. Every field is optional; these are the defaults.
+# Unknown top-level keys are an error (strict decoding) — a typo is rejected at
+# load time rather than silently ignored.
 version: 1
 defaults:
-  op_vault: homelab # default 1Password vault for op:// refs
   timeout: 60s      # per-request HTTP timeout
   output: json      # json | raw | scalar
 # Legacy single-resolver block — still fully supported. It is normalized into an

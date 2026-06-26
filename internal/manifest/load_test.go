@@ -1,10 +1,54 @@
 package manifest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func writeConfig(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLoadStrictConfigRejectsUnknownKey proves a typo'd top-level config key is
+// rejected (strict decoding) and classifies as a *ConfigError (exit 2).
+func TestLoadStrictConfigRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "version: 1\nop_vault: homelab\n")
+	_, err := Load(dir)
+	if err == nil {
+		t.Fatal("expected an error for an unknown top-level config key")
+	}
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("unknown config key should be a *ConfigError, got %T: %v", err, err)
+	}
+}
+
+// TestLoadConfigSecretAndSecretsCoexist proves a config carrying BOTH the legacy
+// secret: block and the new secrets: block still loads clean under strict decode.
+func TestLoadConfigSecretAndSecretsCoexist(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, `version: 1
+secret:
+  resolver: op
+  command: ["op", "read", "{ref}"]
+  env_override: true
+secrets:
+  env_override: true
+  providers:
+    onepassword:
+      scheme: op
+      command: ["op", "read", "{ref}"]
+`)
+	if _, err := Load(dir); err != nil {
+		t.Fatalf("secret: and secrets: should coexist: %v", err)
+	}
+}
 
 func writeManifest(t *testing.T, dir, name, body string) {
 	t.Helper()
