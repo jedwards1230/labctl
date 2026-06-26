@@ -57,6 +57,10 @@ func Load(dir string) (*Loaded, error) {
 		return nil, fmt.Errorf("read %s: %w", cfgPath, err)
 	}
 	applyConfigDefaults(&l.Config)
+	l.Config.Secrets = NormalizeSecrets(l.Config)
+	if err := ValidateConfig(&l.Config); err != nil {
+		return nil, fmt.Errorf("%s: %w", cfgPath, err)
+	}
 
 	// Service manifests (optional dir).
 	svcDir := filepath.Join(dir, "services")
@@ -165,6 +169,59 @@ func applyConfigDefaults(c *Config) {
 	if c.Secret.Resolver == "" {
 		c.Secret.Resolver = "op"
 	}
+}
+
+// schemeAliases maps a provider's map key to a default URI scheme when the
+// ProviderConfig leaves Scheme empty.
+var schemeAliases = map[string]string{
+	"onepassword": "op",
+	"op":          "op",
+}
+
+// NormalizeSecrets returns the effective scheme-dispatched secrets config. When
+// the new secrets.providers block is present it is returned with per-provider
+// defaults applied; otherwise the legacy `secret:` block is folded into a single
+// equivalent op provider, so existing configs keep working unchanged. Pure and
+// idempotent (re-normalizing its own output is a no-op).
+func NormalizeSecrets(cfg Config) SecretsConfig {
+	out := SecretsConfig{}
+	if cfg.Secrets.EnvOverride != nil {
+		out.EnvOverride = cfg.Secrets.EnvOverride
+	} else {
+		v := cfg.Secret.EnvOverride
+		out.EnvOverride = &v
+	}
+
+	if len(cfg.Secrets.Providers) > 0 {
+		out.Providers = make(map[string]ProviderConfig, len(cfg.Secrets.Providers))
+		for name, p := range cfg.Secrets.Providers {
+			if p.Scheme == "" {
+				if s, ok := schemeAliases[name]; ok {
+					p.Scheme = s
+				} else {
+					p.Scheme = name
+				}
+			}
+			if len(p.Command) == 0 && p.Scheme == "op" {
+				p.Command = append([]string(nil), DefaultResolverCommand...)
+			}
+			out.Providers[name] = p
+		}
+		return out
+	}
+
+	// Legacy: synthesize a single op provider from the `secret:` block.
+	cmd := cfg.Secret.Command
+	if len(cmd) == 0 {
+		cmd = append([]string(nil), DefaultResolverCommand...)
+	}
+	out.Providers = map[string]ProviderConfig{
+		"onepassword": {
+			Scheme:  "op",
+			Command: append([]string(nil), cmd...),
+		},
+	}
+	return out
 }
 
 func mergeDefaults(svc *Service, cfg Config) {

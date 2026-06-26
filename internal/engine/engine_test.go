@@ -423,6 +423,42 @@ func TestExtractDataWholeBodyNull(t *testing.T) {
 	}
 }
 
+// TestExecuteDryRun_DoesNotReadSecretToken proves a dry-run never resolves
+// secrets and so never touches a (here, nonexistent) service-account token file.
+// With Runner:nil the real op path would lazily read the token — but dry-run
+// short-circuits before any resolution, so the preview is produced cleanly.
+func TestExecuteDryRun_DoesNotReadSecretToken(t *testing.T) {
+	svc := newService("https://movies.lilbro.cloud")
+	cmds := command.FromManifest(svc)
+	cfg := manifest.Config{
+		Secrets: manifest.SecretsConfig{
+			Providers: map[string]manifest.ProviderConfig{
+				"onepassword": {
+					Scheme:  "op",
+					Command: []string{"op", "read", "{ref}"},
+					Auth: manifest.ProviderAuth{
+						ServiceAccountToken: &manifest.SecretSource{File: "/nonexistent/sa-token"},
+					},
+				},
+			},
+		},
+	}
+	res, err := Execute(context.Background(), Request{
+		Config:  cfg,
+		Service: svc,
+		Command: cmds["list"],
+		Runner:  nil, // real op path — but dry-run must not invoke it
+		Flags:   Flags{DryRun: true},
+		Getenv:  func(string) string { return "" },
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.DryRunMsg, "GET https://movies.lilbro.cloud/api/v3/movie") {
+		t.Fatalf("dry-run msg = %q", res.DryRunMsg)
+	}
+}
+
 type boom struct{}
 
 func (boom) Error() string { return "boom" }

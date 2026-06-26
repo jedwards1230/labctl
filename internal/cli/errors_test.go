@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jedwards1230/labctl/internal/manifest"
+	"github.com/jedwards1230/labctl/internal/secret"
 	"github.com/jedwards1230/labctl/internal/transport"
 )
 
@@ -25,6 +27,8 @@ func TestClassifyExitCodes(t *testing.T) {
 		{"http", &transport.HTTPError{Status: 404, Method: "GET", URL: "u"}, exitHTTP},
 		{"network", &transport.NetworkError{Err: errors.New("dial")}, exitNetwork},
 		{"decode", &decodeError{errors.New("jq")}, exitDecode},
+		{"secret-config", &secret.ConfigError{Err: errors.New("bad source")}, exitUsage},
+		{"manifest-config", &manifest.ConfigError{Err: errors.New("bad config")}, exitUsage},
 		{"general", errors.New("other"), exitGeneral},
 	}
 	for _, tt := range tests {

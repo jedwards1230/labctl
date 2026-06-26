@@ -84,7 +84,7 @@ func Execute(ctx context.Context, req Request, stderr io.Writer) (*Result, error
 
 	// Template env: vars (env-overridable) + args + secret resolver.
 	vars := envOverrideVars(svc, getenv)
-	res := secret.New(req.Config.Secret, svc.Secrets, svc.EnvPrefix, req.Runner)
+	res := secret.New(req.Config, svc.Secrets, svc.EnvPrefix, req.Runner)
 	tmplEnv := template.Env{Vars: vars, Args: req.Args, Secrets: res, Getenv: getenv}
 
 	// Composed pipeline takes precedence over the transport switch.

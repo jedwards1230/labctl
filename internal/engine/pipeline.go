@@ -76,7 +76,7 @@ func executePipeline(
 
 		// Build merged vars for this step: accVars (as strings) overlay base service vars.
 		mergedVars := accVarsToStrings(baseVars, accVars)
-		res := secret.New(req.Config.Secret, svc.Secrets, svc.EnvPrefix, req.Runner)
+		res := secret.New(req.Config, svc.Secrets, svc.EnvPrefix, req.Runner)
 		stepEnv := template.Env{
 			Vars:    mergedVars,
 			Args:    baseTmplEnv.Args,

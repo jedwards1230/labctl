@@ -4,7 +4,26 @@ defaults:
   op_vault: homelab # default 1Password vault for op:// refs
   timeout: 60s      # per-request HTTP timeout
   output: json      # json | raw | scalar
+# Legacy single-resolver block — still fully supported. It is normalized into an
+# equivalent `op` provider, so existing configs keep working unchanged.
 secret:
   resolver: op
   command: ["op", "read", "{ref}"] # {ref} is replaced with the op:// URI
   env_override: true               # allow <PREFIX>_<SECRET> env to skip the resolver
+
+# Preferred form: scheme-dispatched providers. A ref routes to a provider by its
+# URI scheme (op:// → onepassword). env-override now reads secrets.env_override,
+# falling back to the legacy secret.env_override above. Uncomment to use:
+#
+# secrets:
+#   env_override: true
+#   providers:
+#     onepassword:                         # map key aliases to scheme: op
+#       scheme: op
+#       command: ["op", "read", "{ref}"]   # {ref} ← the op:// URI
+#       auth:
+#         # Optional. Omit `auth` entirely to use the personal/desktop op session.
+#         # When set, OP_SERVICE_ACCOUNT_TOKEN is injected into the op subprocess
+#         # only (never argv, never logged). Exactly one of file | value | env.
+#         service_account_token:
+#           file: ~/.config/labctl/sa-token

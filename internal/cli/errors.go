@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/jedwards1230/labctl/internal/manifest"
+	"github.com/jedwards1230/labctl/internal/secret"
 	"github.com/jedwards1230/labctl/internal/transport"
 )
 
@@ -42,9 +44,18 @@ func classify(err error) int {
 	var netErr *transport.NetworkError
 	var useErr *usageError
 	var decErr *decodeError
+	var secretAuthErr *secret.AuthError
+	var secretCfgErr *secret.ConfigError
+	var manifestCfgErr *manifest.ConfigError
 	switch {
 	case errors.As(err, &useErr):
 		return exitUsage
+	case errors.As(err, &secretCfgErr):
+		return exitUsage
+	case errors.As(err, &manifestCfgErr):
+		return exitUsage
+	case errors.As(err, &secretAuthErr):
+		return exitAuth
 	case errors.As(err, &authErr):
 		return exitAuth
 	case errors.As(err, &httpErr):

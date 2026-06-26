@@ -50,6 +50,31 @@ labctl lint                       # validate every manifest
 See [`examples/`](examples/) for fuller manifests (header-key, bearer, basic auth;
 named commands; pagination; multi-endpoint).
 
+### Secrets
+
+`config.yaml` can either keep the legacy single-resolver block or declare
+scheme-dispatched providers (both work; the legacy block is normalized into an
+equivalent `op` provider):
+
+```yaml
+secrets:
+  env_override: true            # allow <PREFIX>_<SECRET> env to skip resolution
+  providers:
+    onepassword:                # map key supplies the default scheme alias → op
+      scheme: op
+      command: ["op", "read", "{ref}"]   # {ref} ← the op:// URI
+      auth:
+        service_account_token:           # optional; omit to use the desktop op session
+          file: ~/.config/labctl/sa-token  # exactly one of file | value | env
+```
+
+When `auth.service_account_token` is set, the op provider injects
+`OP_SERVICE_ACCOUNT_TOKEN` into the `op` subprocess only — never argv, never a
+global export, never any log line. A ref dispatches by its URI scheme, so adding
+a backend (e.g. `aws://`, `vault://`) is three edits in
+[`internal/secret/provider.go`](internal/secret/provider.go) — no engine/CLI
+changes.
+
 ## How it works
 
 - **Two command producers, one model.** Hand-written `commands:` or OpenAPI
@@ -65,8 +90,13 @@ named commands; pagination; multi-endpoint).
 - **MCP server.** `labctl mcp` speaks stdio MCP, exposing every non-ignored
   command as a tool. Same executor as the CLI.
 - **Secrets are references, resolved at call time.** A manifest stores
-  `op://vault/item/field`, never a value. An env override
-  (`<PREFIX>_<SECRET>`) skips the resolver for ephemeral devcontainers/CI.
+  `op://vault/item/field`, never a value. A ref is routed to a provider by its
+  URI scheme (`op://` → the 1Password provider; the seam is open for `aws://`,
+  `vault://`, … — see [`internal/secret/provider.go`](internal/secret/provider.go)).
+  The op provider can inject an `OP_SERVICE_ACCOUNT_TOKEN` into its own
+  subprocess (never a global export); omit `auth` to use the personal/desktop op
+  session. An env override (`<PREFIX>_<SECRET>`) skips resolution entirely for
+  ephemeral devcontainers/CI.
 - **Unopinionated executor.** The binary gates nothing — no `--read-only`, no
   write-confirm. It does exactly what the manifest says. Guardrails belong in the
   consuming layer (e.g. an agent-host pre-call hook), not baked into the tool.
@@ -98,9 +128,10 @@ collector as-is); use TLS client certs or your collector's standard auth instead
 ## Status
 
 Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic`/
-`oauth2-client-credentials`/`ws-login` auth; op secret resolver with env override;
-OpenAPI inference (`spec:`); composed `steps:` pipelines; stdio MCP server
-(`labctl mcp`); optional OpenTelemetry tracing.
+`oauth2-client-credentials`/`ws-login` auth; scheme-dispatched secrets providers
+(1Password today, with optional service-account-token injection) and env
+override; OpenAPI inference (`spec:`); composed `steps:` pipelines; stdio MCP
+server (`labctl mcp`); optional OpenTelemetry tracing.
 
 ## License
 

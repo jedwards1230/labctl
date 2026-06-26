@@ -173,6 +173,58 @@ func validateSpec(s *Service) error {
 	return nil
 }
 
+// validSecretSchemes is the set of URI schemes a secrets provider can serve.
+var validSecretSchemes = map[string]bool{
+	"op": true,
+}
+
+// ConfigError marks a global-config validation problem (exit 2). It mirrors
+// secret.ConfigError on the resolve path so that load-time config-validation
+// failures classify to the same usage exit code, regardless of entry point.
+type ConfigError struct{ Err error }
+
+func (e *ConfigError) Error() string { return e.Err.Error() }
+func (e *ConfigError) Unwrap() error { return e.Err }
+
+// ValidateConfig checks the global config's secrets providers for consistency:
+// each provider's scheme must be known, and a service_account_token (if set)
+// must name exactly one of file|value|env. Structural only — it runs no tools
+// and reads no token files. Safe to call on a normalized or raw Config.
+func ValidateConfig(c *Config) error {
+	for name, p := range c.Secrets.Providers {
+		scheme := p.Scheme
+		if scheme == "" {
+			scheme = name
+		}
+		if !validSecretSchemes[scheme] {
+			return &ConfigError{Err: fmt.Errorf("secrets provider %q: unknown scheme %q (want op)", name, scheme)}
+		}
+		if tok := p.Auth.ServiceAccountToken; tok != nil {
+			if err := validateSecretSource(*tok); err != nil {
+				return &ConfigError{Err: fmt.Errorf("secrets provider %q: service_account_token: %w", name, err)}
+			}
+		}
+	}
+	return nil
+}
+
+func validateSecretSource(s SecretSource) error {
+	n := 0
+	if s.File != "" {
+		n++
+	}
+	if s.Value != "" {
+		n++
+	}
+	if s.Env != "" {
+		n++
+	}
+	if n != 1 {
+		return fmt.Errorf("set exactly one of file|value|env (found %d)", n)
+	}
+	return nil
+}
+
 func transportOf(t string) string {
 	if t == "" {
 		return "http"

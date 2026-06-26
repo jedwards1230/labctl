@@ -43,7 +43,9 @@ internal/
   manifest/   YAML model + XDG load/merge + schema validation
   command/    format-neutral Command model + producers (commands: block, generic verbs)
   template/   {secret.X}/{env.X}/{arg.N}/{var} expansion (JSON braces pass through)
-  secret/     external-tool resolver (op read {ref}) + env override + idioms + cache
+  secret/     scheme-dispatched Provider interface (op:// → 1Password) + env override
+              + idioms + cache; op provider injects OP_SERVICE_ACCOUNT_TOKEN into
+              its subprocess only (never argv/log); legacy `secret:` block normalized
   auth/       apply none/header-key/bearer/basic to a request
   transport/  http (curl-equivalent, error extraction, typed errors→exit codes)
   output/     gojq filter + render modes (json/raw/scalar)
@@ -62,8 +64,12 @@ and is where span-per-tool-call + metrics earn their keep.
 
 ## Status / roadmap
 
-Phase 1 (done): http transport; none/header-key/bearer/basic auth; op resolver +
-env override; generic verbs; gojq output; XDG load; `list`/`lint`/`doctor`.
+Phase 1 (done): http transport; none/header-key/bearer/basic auth; scheme-dispatched
+secrets-provider interface (op:// → 1Password provider, with optional
+service-account-token env injection into the `op` subprocess) + env override;
+generic verbs; gojq output; XDG load; `list`/`lint`/`doctor`. Adding a provider is
+three edits in `internal/secret/provider.go` (new `Provider`, a config block, a
+`NewRegistry` case) — dispatch is by URI scheme, so no engine/cli changes.
 
 Phase 2+3 (done): `jsonrpc-ws` transport + ws-login auth; oauth2-client-credentials
 with on-disk token cache; OpenAPI inference via libopenapi (`spec:` + `spec_filter:`);

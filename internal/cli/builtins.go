@@ -15,7 +15,7 @@ import (
 
 func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadErr error) {
 	root.AddCommand(r.cmdList(loaded, loadErr))
-	root.AddCommand(r.cmdLint(loaded))
+	root.AddCommand(r.cmdLint(loaded, loadErr))
 	root.AddCommand(r.cmdDoctor(loaded))
 	root.AddCommand(r.cmdMCP())
 	root.AddCommand(r.cmdVersion())
@@ -46,12 +46,17 @@ func (r *runner) cmdList(loaded *manifest.Loaded, loadErr error) *cobra.Command 
 	}
 }
 
-func (r *runner) cmdLint(loaded *manifest.Loaded) *cobra.Command {
+func (r *runner) cmdLint(loaded *manifest.Loaded, loadErr error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "lint [service|path.yaml]",
 		Short: "validate manifest schema",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r.curCommand = "lint"
+			// A failed load (e.g. invalid config.yaml) surfaces its real
+			// diagnostic and exit code, not a misleading "no manifests loaded".
+			if loadErr != nil {
+				return loadErr
+			}
 			// A file path argument: validate that file directly.
 			if len(args) == 1 && (strings.HasSuffix(args[0], ".yaml") || strings.HasSuffix(args[0], ".yml")) {
 				cfg := manifest.Config{}

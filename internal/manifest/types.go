@@ -9,7 +9,8 @@ package manifest
 type Config struct {
 	Version  int            `yaml:"version"`
 	Defaults Defaults       `yaml:"defaults"`
-	Secret   SecretResolver `yaml:"secret"`
+	Secret   SecretResolver `yaml:"secret"`  // legacy single-resolver block (permanent alias)
+	Secrets  SecretsConfig  `yaml:"secrets"` // scheme-dispatched providers (supersedes Secret when set)
 }
 
 // Defaults are global fallbacks applied to a service when it leaves a field unset.
@@ -19,11 +20,45 @@ type Defaults struct {
 }
 
 // SecretResolver describes the external tool that turns a ref into a value.
-// Default: `op read {ref}`.
+// Default: `op read {ref}`. This is the legacy single-resolver block; it is kept
+// as a permanent alias and normalized into an equivalent op provider (see
+// SecretsConfig / NormalizeSecrets).
 type SecretResolver struct {
 	Resolver    string   `yaml:"resolver"`     // label only ("op")
 	Command     []string `yaml:"command"`      // argv; {ref} is substituted
 	EnvOverride bool     `yaml:"env_override"` // allow <PREFIX>_<FIELD> env to skip the resolver
+}
+
+// SecretsConfig is the scheme-dispatched secrets configuration. When it declares
+// providers they supersede the legacy `secret:` block; otherwise that block is
+// normalized into a single op provider (see NormalizeSecrets). A ref is routed to
+// a provider by its URI scheme (op:// → the op provider).
+type SecretsConfig struct {
+	// EnvOverride allows <PREFIX>_<SECRET> env vars to skip resolution. Pointer so
+	// "unset" (nil) can fall back to the legacy secret.env_override.
+	EnvOverride *bool `yaml:"env_override"`
+	// Providers are keyed by name; the map key supplies a default Scheme.
+	Providers map[string]ProviderConfig `yaml:"providers"`
+}
+
+// ProviderConfig configures one secrets provider.
+type ProviderConfig struct {
+	Scheme  string       `yaml:"scheme"`  // URI scheme handled (op); defaults from the map key alias
+	Command []string     `yaml:"command"` // argv; {ref} substituted (op default: op read {ref})
+	Auth    ProviderAuth `yaml:"auth"`    // optional credentials for the backing tool
+}
+
+// ProviderAuth holds optional credentials a provider injects into its backing
+// tool's subprocess environment — never into argv, never globally exported.
+type ProviderAuth struct {
+	ServiceAccountToken *SecretSource `yaml:"service_account_token"` // op service-account token (OP_SERVICE_ACCOUNT_TOKEN)
+}
+
+// SecretSource is exactly one of file|value|env — where a token value comes from.
+type SecretSource struct {
+	File  string `yaml:"file"`  // path to a file holding the token (~ and $HOME expanded)
+	Value string `yaml:"value"` // literal token (discouraged; prefer file/env)
+	Env   string `yaml:"env"`   // env var holding the token
 }
 
 // Service is one services/<name>.yaml manifest.
