@@ -18,6 +18,9 @@ gofmt -l .
 # Vet
 go vet ./...
 
+# Lint (required by CI)
+golangci-lint run
+
 # Test with race detector (CI requires ≥75% coverage)
 go test -race ./...
 
