@@ -153,7 +153,7 @@ func TestFetchOAuth2TokenExpired(t *testing.T) {
 		ExpiresAt:   time.Now().Add(-time.Second),
 	}
 	data, _ := json.Marshal(expired)
-	cachePath := cacheFileName(dir, "test-client-id")
+	cachePath := cacheFileName(dir, "test-client-id", a.Value, "")
 	if err := os.WriteFile(cachePath, data, 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -237,6 +237,27 @@ func TestReadCacheInsecurePerms(t *testing.T) {
 
 	if tok := readCache(path); tok != "" {
 		t.Errorf("readCache with 0644 file returned %q, want empty string (insecure perms must be rejected)", tok)
+	}
+}
+
+// TestCacheFileNameKeying proves the cache filename depends on client ID, token
+// URL, and scope — two endpoints sharing a client_id but differing in token URL
+// or scope must not collide, while identical inputs map to the same file.
+func TestCacheFileNameKeying(t *testing.T) {
+	dir := "/cache"
+	base := cacheFileName(dir, "client", "https://idp.a/token", "read")
+
+	if got := cacheFileName(dir, "client", "https://idp.a/token", "read"); got != base {
+		t.Errorf("identical inputs gave different filenames: %q vs %q", got, base)
+	}
+	if got := cacheFileName(dir, "client", "https://idp.b/token", "read"); got == base {
+		t.Error("different token URL must yield a different cache filename")
+	}
+	if got := cacheFileName(dir, "client", "https://idp.a/token", "write"); got == base {
+		t.Error("different scope must yield a different cache filename")
+	}
+	if got := cacheFileName(dir, "other", "https://idp.a/token", "read"); got == base {
+		t.Error("different client ID must yield a different cache filename")
 	}
 }
 
