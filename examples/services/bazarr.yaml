@@ -1,6 +1,6 @@
 name: bazarr
 description: Bazarr (subtitles) — /api base, {data} wrapper, fixed-query paging
-base_url: https://bazarr.lilbro.cloud
+base_url: https://bazarr.example.com
 env_prefix: BAZARR
 
 auth:
@@ -10,7 +10,7 @@ auth:
 
 secrets:
   api_key:
-    ref: "op://homelab/Bazarr/api_key"
+    ref: "op://vault/Bazarr/api_key"
     env: BAZARR_API_KEY
 
 commands:

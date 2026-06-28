@@ -1,6 +1,6 @@
 name: truenas
 description: TrueNAS Scale (JSON-RPC 2.0 over WebSocket)
-base_url: wss://192.168.8.36/api/current
+base_url: wss://192.0.2.36/api/current
 env_prefix: TRUENAS
 transport: jsonrpc-ws
 tls_insecure: true
@@ -12,8 +12,8 @@ auth:
 
 secrets:
   api_key:
-    # Referenced by 1Password item-id to dodge title collisions.
-    ref: "op://homelab/zk7af3vs7sjmxzcmvtmkuk4l5a/api_key"
+    # Reference by item title or id (op://<vault>/<item>/<field>).
+    ref: "op://vault/TrueNAS/api_key"
     env: TRUENAS_API_KEY
 
 commands:

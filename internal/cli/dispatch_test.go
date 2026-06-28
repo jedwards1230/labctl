@@ -99,7 +99,7 @@ auth:
   strategy: none
 secrets:
   api_key:
-    ref: op://homelab/Radarr/api_key
+    ref: op://vault/Radarr/api_key
 commands:
   list:
     method: GET

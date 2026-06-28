@@ -21,7 +21,7 @@ func newService(baseURL string) *manifest.Service {
 		BaseURL:   baseURL,
 		EnvPrefix: "RADARR",
 		Auth:      manifest.Auth{Strategy: "header-key", Header: "X-Api-Key", Value: "{secret.api_key}"},
-		Secrets:   map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}},
+		Secrets:   map[string]manifest.Secret{"api_key": {Ref: "op://vault/Radarr/api_key"}},
 		Commands: map[string]manifest.Command{
 			"list": {Method: "GET", Path: "/api/v3/movie", Output: manifest.Output{Filter: "map(.id)"}},
 		},
@@ -63,7 +63,7 @@ func TestExecuteEndToEnd(t *testing.T) {
 }
 
 func TestExecuteDryRunNoNetwork(t *testing.T) {
-	svc := newService("https://movies.lilbro.cloud")
+	svc := newService("https://movies.example.com")
 	cmds := command.FromManifest(svc)
 	// A resolver that fails loudly — dry-run must not call it.
 	failOp := func([]string) (string, error) { return "", errBoom }
@@ -78,7 +78,7 @@ func TestExecuteDryRunNoNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.DryRunMsg, "GET https://movies.lilbro.cloud/api/v3/movie") {
+	if !strings.Contains(res.DryRunMsg, "GET https://movies.example.com/api/v3/movie") {
 		t.Fatalf("dry-run msg = %q", res.DryRunMsg)
 	}
 	if !strings.Contains(res.DryRunMsg, "X-Api-Key: <redacted>") {
@@ -428,7 +428,7 @@ func TestExtractDataWholeBodyNull(t *testing.T) {
 // With Runner:nil the real op path would lazily read the token — but dry-run
 // short-circuits before any resolution, so the preview is produced cleanly.
 func TestExecuteDryRun_DoesNotReadSecretToken(t *testing.T) {
-	svc := newService("https://movies.lilbro.cloud")
+	svc := newService("https://movies.example.com")
 	cmds := command.FromManifest(svc)
 	cfg := manifest.Config{
 		Secrets: manifest.SecretsConfig{
@@ -454,7 +454,7 @@ func TestExecuteDryRun_DoesNotReadSecretToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(res.DryRunMsg, "GET https://movies.lilbro.cloud/api/v3/movie") {
+	if !strings.Contains(res.DryRunMsg, "GET https://movies.example.com/api/v3/movie") {
 		t.Fatalf("dry-run msg = %q", res.DryRunMsg)
 	}
 }
@@ -465,14 +465,14 @@ func TestExecuteDryRun_DoesNotReadSecretToken(t *testing.T) {
 func TestExecuteDryRunWS_DoesNotResolveSecrets(t *testing.T) {
 	svc := &manifest.Service{
 		Name:      "truenas",
-		BaseURL:   "wss://nas.lilbro.cloud/api/current",
+		BaseURL:   "wss://nas.example.com/api/current",
 		Transport: "jsonrpc-ws",
 		Auth: manifest.Auth{
 			Strategy: "ws-login",
 			Method:   "auth.login_with_api_key",
 			Params:   []string{"{secret.api_key}"},
 		},
-		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://homelab/TrueNAS/api_key"}},
+		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://vault/TrueNAS/api_key"}},
 		Commands: map[string]manifest.Command{
 			"info": {Method: "system.info", Params: `["{secret.api_key}"]`},
 		},
@@ -491,7 +491,7 @@ func TestExecuteDryRunWS_DoesNotResolveSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ws dry-run should not error: %v", err)
 	}
-	if !strings.Contains(res.DryRunMsg, "WS wss://nas.lilbro.cloud/api/current") {
+	if !strings.Contains(res.DryRunMsg, "WS wss://nas.example.com/api/current") {
 		t.Fatalf("missing WS target: %q", res.DryRunMsg)
 	}
 	if !strings.Contains(res.DryRunMsg, `auth: auth.login_with_api_key ["<redacted>"]`) {
@@ -519,7 +519,7 @@ func TestExecuteDryRunHTTP_DoesNotResolveBodySecret(t *testing.T) {
 		BaseURL:   "https://api.example.com",
 		EnvPrefix: "SVC",
 		Auth:      manifest.Auth{Strategy: "none"},
-		Secrets:   map[string]manifest.Secret{"token": {Ref: "op://homelab/Svc/token"}},
+		Secrets:   map[string]manifest.Secret{"token": {Ref: "op://vault/Svc/token"}},
 		Commands: map[string]manifest.Command{
 			"push": {
 				Method:  "POST",
