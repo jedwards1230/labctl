@@ -17,7 +17,7 @@ func (e errNotFound) Error() string { return "no secret " + e.name }
 
 func TestExpand(t *testing.T) {
 	env := Env{
-		Vars:    map[string]string{"host": "192.168.8.10"},
+		Vars:    map[string]string{"host": "192.0.2.10"},
 		Args:    []string{"abc", "42"},
 		Secrets: fakeResolver{"api_key": "s3cr3t"},
 		Getenv:  func(k string) string { return map[string]string{"FOO": "bar"}[k] },
@@ -25,7 +25,7 @@ func TestExpand(t *testing.T) {
 	cases := []struct {
 		in, want string
 	}{
-		{"https://{host}:47990/api", "https://192.168.8.10:47990/api"},
+		{"https://{host}:47990/api", "https://192.0.2.10:47990/api"},
 		{"{secret.api_key}", "s3cr3t"},
 		{"X-{env.FOO}-Y", "X-bar-Y"},
 		{"/movie/{arg.0}", "/movie/abc"},

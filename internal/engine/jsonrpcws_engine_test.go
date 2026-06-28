@@ -110,7 +110,7 @@ func TestExecuteJSONRPCWSSuccess(t *testing.T) {
 			Method:   "auth.login_with_api_key",
 			Params:   []string{"{secret.api_key}"},
 		},
-		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://homelab/truenas/api_key"}},
+		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://vault/truenas/api_key"}},
 		Commands: map[string]manifest.Command{
 			"pool-query": {Method: "pool.query", Params: `["{poolname}"]`},
 		},
@@ -165,7 +165,7 @@ func TestExecuteJSONRPCWSNoAuthHonored(t *testing.T) {
 			Params:   []string{"{secret.api_key}"},
 		},
 		// A secret resolver that fails loudly — noauth must skip it entirely.
-		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://homelab/truenas/api_key"}},
+		Secrets: map[string]manifest.Secret{"api_key": {Ref: "op://vault/truenas/api_key"}},
 		Commands: map[string]manifest.Command{
 			"ping": {Method: "core.ping", NoAuth: true},
 		},

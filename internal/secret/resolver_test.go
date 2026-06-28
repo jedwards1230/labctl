@@ -121,7 +121,7 @@ func TestBackCompatLegacyBlock(t *testing.T) {
 	}
 	var gotArgv []string
 	run := func(argv []string) (string, error) { gotArgv = argv; return "from-op", nil }
-	r := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
+	r := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://vault/Radarr/api_key"}}, "RADARR", run)
 
 	// No env set: provider resolves.
 	r.withGetenv(func(string) string { return "" })
@@ -132,12 +132,12 @@ func TestBackCompatLegacyBlock(t *testing.T) {
 	if v != "from-op" {
 		t.Fatalf("got %q, want from-op", v)
 	}
-	if strings.Join(gotArgv, " ") != "op read op://homelab/Radarr/api_key" {
+	if strings.Join(gotArgv, " ") != "op read op://vault/Radarr/api_key" {
 		t.Fatalf("argv = %v", gotArgv)
 	}
 
 	// <PREFIX>_<NAME> override wins (fresh resolver to avoid the cache).
-	r2 := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}}, "RADARR", run)
+	r2 := New(context.Background(), cfg, map[string]manifest.Secret{"api_key": {Ref: "op://vault/Radarr/api_key"}}, "RADARR", run)
 	r2.withGetenv(func(k string) string {
 		if k == "RADARR_API_KEY" {
 			return "overridden"

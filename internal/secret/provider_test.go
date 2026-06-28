@@ -13,7 +13,7 @@ func TestSchemeOf(t *testing.T) {
 		ref  string
 		want string
 	}{
-		{"op://homelab/Radarr/api_key", "op"},
+		{"op://vault/Radarr/api_key", "op"},
 		{"aws://secretsmanager/foo", "aws"},
 		{"vault://kv/data/foo", "vault"},
 		{"no-scheme-here", ""},

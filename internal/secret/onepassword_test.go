@@ -22,14 +22,14 @@ func TestResolveRead(t *testing.T) {
 		gotArgv = argv
 		return "resolved-value", nil
 	})
-	v, err := resolveWith(t, p, Ref{URI: "op://homelab/Radarr/api_key"})
+	v, err := resolveWith(t, p, Ref{URI: "op://vault/Radarr/api_key"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v != "resolved-value" {
 		t.Fatalf("got %q", v)
 	}
-	if strings.Join(gotArgv, " ") != "op read op://homelab/Radarr/api_key" {
+	if strings.Join(gotArgv, " ") != "op read op://vault/Radarr/api_key" {
 		t.Fatalf("argv = %v", gotArgv)
 	}
 }
@@ -40,14 +40,14 @@ func TestResolveItemGet(t *testing.T) {
 		gotArgv = argv
 		return "item-value", nil
 	})
-	v, err := resolveWith(t, p, Ref{URI: "op://homelab/Forgejo/token", Idiom: "item-get"})
+	v, err := resolveWith(t, p, Ref{URI: "op://vault/Forgejo/token", Idiom: "item-get"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v != "item-value" {
 		t.Fatalf("got %q", v)
 	}
-	want := []string{"op", "item", "get", "--vault", "homelab", "--field", "token", "--reveal", "--", "Forgejo"}
+	want := []string{"op", "item", "get", "--vault", "vault", "--field", "token", "--reveal", "--", "Forgejo"}
 	if !reflect.DeepEqual(gotArgv, want) {
 		t.Fatalf("argv = %v, want %v", gotArgv, want)
 	}
@@ -59,10 +59,10 @@ func TestResolveItemJSON(t *testing.T) {
 		gotArgv = argv
 		return "{}", nil
 	})
-	if _, err := resolveWith(t, p, Ref{URI: "op://homelab/Forgejo/token", Idiom: "item-json"}); err != nil {
+	if _, err := resolveWith(t, p, Ref{URI: "op://vault/Forgejo/token", Idiom: "item-json"}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"op", "item", "get", "--vault", "homelab", "--format", "json", "--reveal", "--", "Forgejo"}
+	want := []string{"op", "item", "get", "--vault", "vault", "--format", "json", "--reveal", "--", "Forgejo"}
 	if !reflect.DeepEqual(gotArgv, want) {
 		t.Fatalf("argv = %v, want %v", gotArgv, want)
 	}

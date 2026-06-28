@@ -18,7 +18,7 @@ func writeConfig(t *testing.T, dir, body string) {
 // rejected (strict decoding) and classifies as a *ConfigError (exit 2).
 func TestLoadStrictConfigRejectsUnknownKey(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, "version: 1\nop_vault: homelab\n")
+	writeConfig(t, dir, "version: 1\nop_vault: vault\n")
 	_, err := Load(dir)
 	if err == nil {
 		t.Fatal("expected an error for an unknown top-level config key")
@@ -126,9 +126,9 @@ func TestValidateRejectsBad(t *testing.T) {
 func TestValidateAcceptsGood(t *testing.T) {
 	svc := &Service{
 		Name:    "radarr",
-		BaseURL: "https://movies.lilbro.cloud",
+		BaseURL: "https://movies.example.com",
 		Auth:    Auth{Strategy: "header-key", Header: "X-Api-Key", Value: "{secret.api_key}"},
-		Secrets: map[string]Secret{"api_key": {Ref: "op://homelab/Radarr/api_key"}},
+		Secrets: map[string]Secret{"api_key": {Ref: "op://vault/Radarr/api_key"}},
 		Commands: map[string]Command{
 			"status": {Method: "GET", Path: "/api/v3/system/status"},
 		},

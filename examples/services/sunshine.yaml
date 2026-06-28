@@ -7,7 +7,7 @@ base_url: https://{host}:47990/api
 env_prefix: SUNSHINE
 tls_insecure: true # self-signed cert
 vars:
-  host: 192.168.8.10 # SUNSHINE_HOST overrides
+  host: 192.0.2.10 # SUNSHINE_HOST overrides
 
 auth:
   strategy: basic
@@ -15,8 +15,8 @@ auth:
   password: "{secret.password}"
 
 secrets:
-  username: { ref: "op://homelab/n77x36pmuctoljfazqgusnfhdu/username" }
-  password: { ref: "op://homelab/n77x36pmuctoljfazqgusnfhdu/password" }
+  username: { ref: "op://vault/Sunshine/username" }
+  password: { ref: "op://vault/Sunshine/password" }
 
 endpoints:
   serverinfo:

@@ -1,6 +1,6 @@
 name: sonarr
 description: Sonarr v3 (series)
-base_url: https://tv.lilbro.cloud
+base_url: https://tv.example.com
 env_prefix: SONARR
 
 auth:
@@ -10,7 +10,7 @@ auth:
 
 secrets:
   api_key:
-    ref: "op://homelab/Sonarr/api_key"
+    ref: "op://vault/Sonarr/api_key"
     env: SONARR_API_KEY
 
 commands:

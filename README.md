@@ -44,7 +44,7 @@ A minimal connection-only manifest is usable immediately via generic verbs:
 ```yaml
 # services/tdarr.yaml
 name: tdarr
-base_url: https://tdarr.lilbro.cloud
+base_url: https://tdarr.example.com
 auth: { strategy: none }
 ```
 

@@ -1,6 +1,6 @@
 name: radarr
 description: Radarr v3 (movies)
-base_url: https://movies.lilbro.cloud
+base_url: https://movies.example.com
 env_prefix: RADARR
 
 auth:
@@ -10,7 +10,7 @@ auth:
 
 secrets:
   api_key:
-    ref: "op://homelab/Radarr/api_key"
+    ref: "op://vault/Radarr/api_key"
     env: RADARR_API_KEY
 
 commands:

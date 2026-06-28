@@ -11,10 +11,10 @@ auth:
 
 secrets:
   client_id:
-    ref: "op://homelab/Tailscale API - homelab/client_id"
+    ref: "op://vault/Tailscale API/client_id"
     env: TS_CLIENT_ID
   client_secret:
-    ref: "op://homelab/Tailscale API - homelab/client_secret"
+    ref: "op://vault/Tailscale API/client_secret"
     env: TS_CLIENT_SECRET
 
 commands:
