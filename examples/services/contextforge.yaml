@@ -1,0 +1,50 @@
+name: contextforge
+description: ContextForge MCP Gateway (IBM mcp-context-forge) — federated tool registry, virtual servers, teams, and RBAC
+base_url: https://mcp-gateway.example.com
+env_prefix: CONTEXTFORGE
+
+auth:
+  strategy: bearer
+  value: "{secret.token}"
+
+secrets:
+  token:
+    # 1Password item holding the gateway bearer token, field "credential".
+    ref: "op://vault/ContextForge/credential"
+    env: CONTEXTFORGE_TOKEN
+
+commands:
+  gateways:
+    help: registered upstream MCP gateway servers
+    method: GET
+    path: /gateways/
+    output: { filter: "map({id,name,url,enabled})" }
+  servers:
+    help: virtual MCP servers
+    method: GET
+    path: /servers/
+    output: { filter: "map({id,name,description})" }
+  tools:
+    help: all federated tools — field originalName is the tool's real name
+    method: GET
+    path: /tools
+    output: { filter: "map({id,originalName,description})" }
+  teams:
+    help: RBAC teams
+    method: GET
+    path: /teams
+    output: { filter: "map({id,name,description})" }
+  roles:
+    help: RBAC roles
+    method: GET
+    path: /rbac/roles
+    output: { filter: "map({id,name,description})" }
+  permissions:
+    help: available RBAC permission vocabulary
+    method: GET
+    path: /rbac/permissions/available
+  tokens:
+    help: API tokens (GET /tokens/{id} does not expose scope — decode the JWT to confirm)
+    method: GET
+    path: /tokens
+    output: { filter: "map({id,name})" }
