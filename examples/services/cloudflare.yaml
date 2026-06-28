@@ -1,0 +1,53 @@
+name: cloudflare
+description: Cloudflare API (client/v4) — zones, DNS records, tunnels, account membership (read-only)
+base_url: https://api.cloudflare.com/client/v4
+env_prefix: CF
+
+vars:
+  # Default account id for account-scoped routes; override per-call with CF_ACCOUNT_ID.
+  account_id: "0000000000000000000000000000example"
+
+auth:
+  # Cloudflare API tokens authenticate as a Bearer token.
+  strategy: bearer
+  value: "{secret.token}"
+
+secrets:
+  token:
+    # 1Password item holding the Cloudflare API token, field "credential".
+    ref: "op://vault/Cloudflare API Token/credential"
+    env: CF_API_TOKEN
+
+commands:
+  verify:
+    help: verify the API token (status, id, expiry)
+    method: GET
+    path: /user/tokens/verify
+    output: { filter: "{status:.result.status,id:.result.id,expires:.result.expires_on}" }
+  zones:
+    help: list zones
+    method: GET
+    path: /zones
+    query: "per_page=50"
+    output: { filter: ".result | map({id,name,status,plan:.plan.name})" }
+  dns:
+    help: "DNS records for a zone — pass the zone id: labctl svc cloudflare dns <zone_id>"
+    method: GET
+    path: /zones/{arg0}/dns_records
+    query: "per_page=100"
+    output: { filter: ".result | map({id,type,name,content,proxied,ttl})" }
+  accounts:
+    help: list accounts
+    method: GET
+    path: /accounts
+    output: { filter: ".result | map({id,name})" }
+  tunnels:
+    help: "Cloudflare Tunnels for the account (override the account with CF_ACCOUNT_ID)"
+    method: GET
+    path: /accounts/{account_id}/cfd_tunnel
+    output: { filter: ".result | map({id,name,status,created:.created_at})" }
+  members:
+    help: "account members (override the account with CF_ACCOUNT_ID)"
+    method: GET
+    path: /accounts/{account_id}/members
+    output: { filter: ".result | map({id,status,user:.user.email,roles:[.roles[].name]})" }
