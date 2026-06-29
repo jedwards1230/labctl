@@ -16,10 +16,11 @@ under `docs/projects/homelab-api-cli-prd.md` and `homelab-api-cli-plan.md`.
 
 ## Core principle: unopinionated executor
 
-The binary **gates nothing** — no `--read-only`, no write-confirm, no MCP
-write-gating. It does exactly what the manifest says. Guardrails belong in the
-consuming layer (an agent-host pre-call hook), not baked into the tool. Don't add
-safety/policy logic here.
+The binary **gates nothing** — no `--read-only`, no MCP write-gating — **except** a
+step a manifest explicitly marks `confirm:`, which aborts unless `--yes/-y` clears
+it (manifest-opt-in, fail-closed; no interactive prompt). It otherwise does exactly
+what the manifest says. Guardrails belong in the consuming layer (an agent-host
+pre-call hook), not baked into the tool. Don't add safety/policy logic here.
 
 ## Architecture
 

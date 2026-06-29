@@ -171,12 +171,12 @@ func writeAuth(b *strings.Builder, name, prefix, auth string) {
 		writeSecrets(b, prefix, scaffoldSecrets(auth)...)
 	case "oauth2-client-credentials":
 		b.WriteString("# OAuth2 client-credentials grant. labctl caches the token on disk and\n")
-		b.WriteString("# refreshes it as needed. `value` is the token endpoint URL.\n")
+		b.WriteString("# refreshes it as needed. `token_url` is the token endpoint URL.\n")
 		b.WriteString("auth:\n")
 		b.WriteString("  strategy: oauth2-client-credentials\n")
-		fmt.Fprintf(b, "  value: \"https://%s.example.com/oauth/token\"\n", name)
-		b.WriteString("  username: \"{secret.client_id}\"      # the OAuth client_id\n")
-		b.WriteString("  password: \"{secret.client_secret}\"  # the OAuth client_secret\n")
+		fmt.Fprintf(b, "  token_url: \"https://%s.example.com/oauth/token\"\n", name)
+		b.WriteString("  client_id: \"{secret.client_id}\"          # the OAuth client_id\n")
+		b.WriteString("  client_secret: \"{secret.client_secret}\"  # the OAuth client_secret\n")
 		writeSecrets(b, prefix, scaffoldSecrets(auth)...)
 	case "ws-login":
 		b.WriteString("# JSON-RPC login: labctl calls `method` with `params` after connecting.\n")

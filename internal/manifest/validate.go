@@ -279,15 +279,18 @@ func validateAuth(a Auth, secrets map[string]Secret) error {
 			return fmt.Errorf("auth basic requires username and password templates")
 		}
 	case "oauth2-client-credentials":
-		if a.Value == "" {
-			return fmt.Errorf("auth oauth2-client-credentials requires value (token URL)")
+		// Validate whichever field is set per pair: prefer the intent-revealing
+		// token_url/client_id/client_secret, fall back to the overloaded
+		// value/username/password (back-compat). Don't require both forms.
+		if a.OAuth2TokenURL() == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires token_url (the token endpoint)")
 		}
-		if a.Username == "" || a.Password == "" {
-			return fmt.Errorf("auth oauth2-client-credentials requires username (client_id) and password (client_secret) templates")
+		if a.OAuth2ClientID() == "" || a.OAuth2ClientSecret() == "" {
+			return fmt.Errorf("auth oauth2-client-credentials requires client_id and client_secret templates")
 		}
 	}
 	// Verify {secret.X} references resolve to a declared secret.
-	for _, tmpl := range []string{a.Value, a.Username, a.Password} {
+	for _, tmpl := range []string{a.Value, a.Username, a.Password, a.TokenURL, a.ClientID, a.ClientSecret} {
 		for _, ref := range secretRefs(tmpl) {
 			if _, ok := secrets[ref]; !ok {
 				return fmt.Errorf("auth references undeclared secret %q", ref)

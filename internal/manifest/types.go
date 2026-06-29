@@ -97,6 +97,12 @@ type Endpoint struct {
 
 // Auth selects and parameterizes a credential strategy. Fields are a superset
 // across strategies; only those relevant to `strategy` are read.
+//
+// For oauth2-client-credentials, prefer the intent-revealing token_url/client_id/
+// client_secret fields. The overloaded value/username/password fields are still
+// read as a fallback (token_url←value, client_id←username, client_secret←password)
+// so older manifests keep working — see OAuth2TokenURL/OAuth2ClientID/
+// OAuth2ClientSecret.
 type Auth struct {
 	Strategy string   `yaml:"strategy"` // none|header-key|bearer|basic|oauth2-client-credentials|ws-login|login-flow|external-tool
 	Header   string   `yaml:"header"`   // header-key
@@ -106,6 +112,39 @@ type Auth struct {
 	Password string   `yaml:"password"` // basic
 	Method   string   `yaml:"method"`   // ws-login jsonrpc method
 	Params   []string `yaml:"params"`   // ws-login params (templated)
+
+	// oauth2-client-credentials intent-revealing aliases (preferred over the
+	// overloaded value/username/password above).
+	TokenURL     string `yaml:"token_url"`     // oauth2 token endpoint (fallback: value)
+	ClientID     string `yaml:"client_id"`     // oauth2 client_id (fallback: username)
+	ClientSecret string `yaml:"client_secret"` // oauth2 client_secret (fallback: password)
+}
+
+// OAuth2TokenURL returns the oauth2 token endpoint, preferring the intent-revealing
+// token_url field and falling back to the overloaded value field for back-compat.
+func (a Auth) OAuth2TokenURL() string {
+	if a.TokenURL != "" {
+		return a.TokenURL
+	}
+	return a.Value
+}
+
+// OAuth2ClientID returns the oauth2 client_id, preferring the intent-revealing
+// client_id field and falling back to the overloaded username field for back-compat.
+func (a Auth) OAuth2ClientID() string {
+	if a.ClientID != "" {
+		return a.ClientID
+	}
+	return a.Username
+}
+
+// OAuth2ClientSecret returns the oauth2 client_secret, preferring the intent-revealing
+// client_secret field and falling back to the overloaded password field for back-compat.
+func (a Auth) OAuth2ClientSecret() string {
+	if a.ClientSecret != "" {
+		return a.ClientSecret
+	}
+	return a.Password
 }
 
 // Secret is a credential reference, never a value. Resolved at call time.

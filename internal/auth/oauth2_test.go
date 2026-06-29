@@ -261,6 +261,70 @@ func TestCacheFileNameKeying(t *testing.T) {
 	}
 }
 
+// TestFetchOAuth2FieldAliases proves the intent-revealing token_url/client_id/
+// client_secret fields and the legacy value/username/password fields resolve to
+// the SAME token request — same basic-auth credentials, same token endpoint —
+// so older manifests keep working unchanged (back-compat).
+func TestFetchOAuth2FieldAliases(t *testing.T) {
+	// A server that captures the basic-auth credentials it was sent.
+	newServer := func(t *testing.T) (*httptest.Server, *string, *string) {
+		t.Helper()
+		var gotUser, gotPass string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotUser, gotPass, _ = r.BasicAuth()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"access_token":"alias-tok","token_type":"Bearer","expires_in":3600}`)
+		}))
+		return srv, &gotUser, &gotPass
+	}
+
+	cases := []struct {
+		name string
+		spec func(tokenURL string) manifest.Auth
+	}{
+		{
+			name: "new fields (token_url/client_id/client_secret)",
+			spec: func(tokenURL string) manifest.Auth {
+				return manifest.Auth{
+					Strategy:     "oauth2-client-credentials",
+					TokenURL:     tokenURL,
+					ClientID:     "cid-123",
+					ClientSecret: "csecret-456",
+				}
+			},
+		},
+		{
+			name: "legacy fields (value/username/password)",
+			spec: func(tokenURL string) manifest.Auth {
+				return manifest.Auth{
+					Strategy: "oauth2-client-credentials",
+					Value:    tokenURL,
+					Username: "cid-123",
+					Password: "csecret-456",
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, gotUser, gotPass := newServer(t)
+			defer srv.Close()
+
+			tok, err := fetchOAuth2Token(context.Background(), tc.spec(srv.URL), plainEnv, t.TempDir())
+			if err != nil {
+				t.Fatalf("fetchOAuth2Token: %v", err)
+			}
+			if tok != "alias-tok" {
+				t.Fatalf("token = %q, want alias-tok", tok)
+			}
+			if *gotUser != "cid-123" || *gotPass != "csecret-456" {
+				t.Fatalf("basic auth = %q:%q, want cid-123:csecret-456", *gotUser, *gotPass)
+			}
+		})
+	}
+}
+
 func TestApplyOAuth2ClientCredentials(t *testing.T) {
 	var calls atomic.Int32
 	srv := fakeTokenServer(t, 200,

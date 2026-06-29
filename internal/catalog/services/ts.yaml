@@ -4,9 +4,9 @@ env_prefix: TS
 
 auth:
   strategy: oauth2-client-credentials
-  value: "https://api.tailscale.com/api/v2/oauth/token"
-  username: "{secret.client_id}"
-  password: "{secret.client_secret}"
+  token_url: "https://api.tailscale.com/api/v2/oauth/token"
+  client_id: "{secret.client_id}"
+  client_secret: "{secret.client_secret}"
 
 secrets:
   client_id:

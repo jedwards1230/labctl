@@ -105,7 +105,7 @@ func (r *runner) newRoot() *cobra.Command {
 	pf.BoolVar(&r.flags.dryRun, "dry-run", false, "resolve and print the request, send nothing")
 	pf.BoolVarP(&r.flags.verbose, "verbose", "v", false, "request/response diagnostics to stderr (secrets redacted)")
 	pf.BoolVar(&r.flags.jsonErrors, "json-errors", false, "emit errors as a JSON envelope")
-	pf.BoolVarP(&r.flags.yes, "yes", "y", false, "skip write confirmation (reserved; the binary gates nothing)")
+	pf.BoolVarP(&r.flags.yes, "yes", "y", false, "clear a step's confirm: gate (manifests opt in; otherwise the binary gates nothing)")
 
 	// Load manifests for dynamic registration. A load error still lets builtins
 	// like `lint` run, so report it lazily rather than aborting here.

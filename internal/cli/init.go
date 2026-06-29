@@ -19,12 +19,17 @@ version: 1
 defaults:
   timeout: 60s      # per-request HTTP timeout
   output: json      # json | raw | scalar
-# Legacy single-resolver block — still fully supported. It is normalized into an
-# equivalent ` + "`op`" + ` provider, so existing configs keep working unchanged.
-secret:
-  resolver: op
-  command: ["op", "read", "{ref}"] # {ref} is replaced with the op:// URI
-  env_override: true               # allow <PREFIX>_<SECRET> env to skip the resolver
+
+# Scheme-dispatched secret providers. A ref routes to a provider by its URI
+# scheme (op:// → the onepassword provider).
+secrets:
+  env_override: true                     # allow <PREFIX>_<SECRET> env to skip resolution
+  providers:
+    onepassword:                         # map key aliases to scheme: op
+      scheme: op
+      command: ["op", "read", "{ref}"]   # {ref} ← the op:// URI
+
+# The legacy single-resolver ` + "`secret:`" + ` block is a still-supported deprecated alias.
 `
 
 // defaultProfileYAML is the commented profile.yaml stub `labctl init` provisions.

@@ -135,9 +135,8 @@ prints `incomplete: …` for an unbound service instead of probing it).
 
 ### Secrets
 
-`config.yaml` can either keep the legacy single-resolver block or declare
-scheme-dispatched providers (both work; the legacy block is normalized into an
-equivalent `op` provider):
+`config.yaml` declares scheme-dispatched secret providers. A ref routes to a
+provider by its URI scheme (`op://` → the `onepassword` provider):
 
 ```yaml
 secrets:
@@ -150,6 +149,9 @@ secrets:
         service_account_token:           # optional; omit to use the desktop op session
           file: ~/.config/labctl/sa-token  # exactly one of file | value | env
 ```
+
+The legacy single-resolver `secret:` block is a still-supported deprecated alias
+(normalized into an equivalent `op` provider), so older configs keep working.
 
 When `auth.service_account_token` is set, the op provider injects
 `OP_SERVICE_ACCOUNT_TOKEN` into the `op` subprocess only — never argv, never a
@@ -180,9 +182,11 @@ changes.
   subprocess (never a global export); omit `auth` to use the personal/desktop op
   session. An env override (`<PREFIX>_<SECRET>`) skips resolution entirely for
   ephemeral devcontainers/CI.
-- **Unopinionated executor.** The binary gates nothing — no `--read-only`, no
-  write-confirm. It does exactly what the manifest says. Guardrails belong in the
-  consuming layer (e.g. an agent-host pre-call hook), not baked into the tool.
+- **Unopinionated executor.** The binary gates nothing — no `--read-only`, no MCP
+  write-gating — **except** a step a manifest explicitly marks `confirm:`, which
+  aborts unless `--yes/-y` clears it (manifest-opt-in, fail-closed; no interactive
+  prompt). It otherwise does exactly what the manifest says. Guardrails belong in
+  the consuming layer (e.g. an agent-host pre-call hook), not baked into the tool.
 - **Unix-native.** stdout is data, stderr is diagnostics, exit codes are real,
   secrets never appear in argv, manifests are re-read just-in-time per call.
 

@@ -117,35 +117,36 @@ func writeCache(path, token string, expiresIn int) error {
 }
 
 // fetchOAuth2Token resolves or refreshes the access token for the given
-// auth spec. It uses the template env to expand client_id (Username field)
-// and client_secret (Password field); the token URL is the Value field.
-// An optional scope may be provided in Params[0].
+// auth spec. It uses the template env to expand client_id and client_secret and
+// the token endpoint URL; each prefers its intent-revealing field (token_url/
+// client_id/client_secret) and falls back to the overloaded value/username/
+// password for back-compat. An optional scope may be provided in Params[0].
 //
 // Cache location: <dir>/<sha256(clientID,tokenURL,scope)>.token (0600).
 // Tokens are reused while valid with a 60-second safety margin.
 func fetchOAuth2Token(ctx context.Context, a manifest.Auth, env template.Env, dir string) (string, error) {
-	tokenURL, err := env.Expand(a.Value)
+	tokenURL, err := env.Expand(a.OAuth2TokenURL())
 	if err != nil {
 		return "", fmt.Errorf("oauth2: expand token URL: %w", err)
 	}
 	if tokenURL == "" {
-		return "", fmt.Errorf("oauth2: auth.value (token URL) is required")
+		return "", fmt.Errorf("oauth2: token_url is required")
 	}
 
-	clientID, err := env.Expand(a.Username)
+	clientID, err := env.Expand(a.OAuth2ClientID())
 	if err != nil {
 		return "", fmt.Errorf("oauth2: expand client_id: %w", err)
 	}
 	if clientID == "" {
-		return "", fmt.Errorf("oauth2: auth.username (client_id) is required")
+		return "", fmt.Errorf("oauth2: client_id is required")
 	}
 
-	clientSecret, err := env.Expand(a.Password)
+	clientSecret, err := env.Expand(a.OAuth2ClientSecret())
 	if err != nil {
 		return "", fmt.Errorf("oauth2: expand client_secret: %w", err)
 	}
 	if clientSecret == "" {
-		return "", fmt.Errorf("oauth2: auth.password (client_secret) is required")
+		return "", fmt.Errorf("oauth2: client_secret is required")
 	}
 
 	// Scope is optional; taken from Params[0] if present.
