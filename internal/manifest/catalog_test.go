@@ -34,10 +34,13 @@ func TestCatalogHasExpectedServices(t *testing.T) {
 }
 
 // TestCatalogServicesValidate is the CI guard that every embedded manifest is a
-// well-formed manifest. It runs the SAME full decode path Load uses
-// (decodeService → structural Validate → mergeSpecCommands), so a malformed
-// spec:/jq/step in an embedded manifest fails here rather than at a user's first
-// call. It also re-asserts structural Validate explicitly.
+// well-formed manifest. It runs the full decode path (decodeService → structural
+// Validate → mergeSpecCommands), so a malformed YAML, field name, jq expression,
+// or spec:/step in an embedded manifest fails here rather than at a user's first
+// call. It deliberately passes configDir="" (unlike Load, which passes the config
+// dir): embedded manifests are portable and must never reference a relative spec:
+// path, so "" both matches that invariant and asserts it. It also re-asserts
+// structural Validate explicitly.
 func TestCatalogServicesValidate(t *testing.T) {
 	for _, name := range CatalogNames() {
 		raw, ok := CatalogManifest(name)
@@ -46,7 +49,8 @@ func TestCatalogServicesValidate(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			// Exercise the real loader decode path (parse + Validate + spec
-			// inference), exactly as Load does for the embedded catalog.
+			// inference). configDir="" on purpose: embedded manifests are portable
+			// and must not resolve relative spec: paths (see the doc comment).
 			svc, err := decodeService(raw, "catalog:"+name+".yaml", "", io.Discard)
 			if err != nil {
 				t.Fatalf("decodeService(%s): %v", name, err)
