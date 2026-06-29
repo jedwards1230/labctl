@@ -12,10 +12,11 @@ import (
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
 
+// validManifestBody is a PORTABLE manifest (no base_url) — it passes plain
+// `lint` and `list`, which only check structure. Binding lives in profile.yaml.
 const validManifestBody = `
 name: radarr
 description: movie manager
-base_url: http://movies.example
 auth:
   strategy: none
 commands:
@@ -46,7 +47,6 @@ func TestLintSchemaBroken(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "broken", `
 name: broken
-base_url: http://x.example
 auth:
   strategy: not-a-real-strategy
 commands:

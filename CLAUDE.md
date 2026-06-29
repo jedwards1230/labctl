@@ -83,14 +83,16 @@ compiled into the binary via `//go:embed`, so consumers no longer vendor copies.
   `services/` dir, all 15 come from the catalog.
 - A manifest is **portable** (what a service *is*); user-specific endpoints and
   credentials (`base_url`, secret `ref`s, per-machine endpoint/var/tls overrides)
-  live in an optional `profile.yaml` at the config root. Precedence is **env
-  override > profile > manifest**; absence of `profile.yaml` ⇒ all-in-one
-  manifests behave unchanged. Structural `Validate` (well-formed) is split from
-  `ValidateComplete` (resolvable base_url + every secret bound); completeness is
-  enforced post-merge at execute time and surfaced by `doctor` / `lint --strict`.
-  Portable + `profile.yaml` is now the **default** the shipped `examples/` use;
-  in-manifest all-in-one binding (`base_url` / secret `ref` inline) is legacy and
-  slated for removal.
+  live in a `profile.yaml` at the config root, which is the **sole** binding
+  mechanism. Precedence is **env override > profile**. A manifest may **not**
+  carry a `base_url` (service or endpoint) or a secret `ref` — structural
+  `Validate` rejects it (`*ConfigError` → exit 2, message points at the
+  `profile.yaml` slot); an in-manifest secret `env:` stays allowed (a
+  CI/devcontainer override). Structural `Validate` (well-formed, runs on the RAW
+  pre-merge manifest) is split from `ValidateComplete` (post-merge: resolvable
+  base_url + every secret bound); completeness is enforced post-merge at execute
+  time and surfaced by `doctor` / `lint --strict`. Portable + `profile.yaml` is
+  the form the shipped `examples/` use.
 - New auth strategy / transport / pagination style → wire it in its package + add
   a test; keep the manifest schema additive.
 - Release: opt-in `semver:*` label on the merged PR (no label → no release);

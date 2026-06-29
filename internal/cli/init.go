@@ -28,11 +28,13 @@ secret:
 `
 
 // defaultProfileYAML is the commented profile.yaml stub `labctl init` provisions.
-// A profile binds portable manifests to THIS machine's endpoints and secret refs;
-// it is optional — absent, every all-in-one manifest behaves exactly as before.
-const defaultProfileYAML = `# labctl per-user profile. Optional: binds portable manifests to THIS machine's
-# endpoints and credentials. Absent, every all-in-one manifest behaves unchanged.
-# Precedence at resolution time: env override > profile > manifest.
+// A profile binds portable manifests to THIS machine's endpoints and secret refs.
+// It is the SOLE binding mechanism: a manifest carries the portable shape only —
+// an in-manifest base_url or secret ref is rejected by `lint`.
+const defaultProfileYAML = `# labctl per-user profile: binds portable manifests to THIS machine's endpoints
+# and credentials. This is the only place a base_url or secret ref may live — a
+# manifest carries the portable shape only (an in-manifest base_url/ref is
+# rejected). Precedence at resolution time: env override > profile.
 version: 1
 services:
   # Bind a portable manifest (services/<name>.yaml) to your machine here, e.g.:

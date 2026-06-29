@@ -12,7 +12,8 @@ import (
 )
 
 // writeService writes a manifest into <dir>/services/<name>.yaml, creating the
-// services dir if needed.
+// services dir if needed. Manifests are PORTABLE — they carry no base_url or
+// secret ref (those bind via profile.yaml; see writeProfile / bindBaseURL).
 func writeService(t *testing.T, dir, name, body string) {
 	t.Helper()
 	svcDir := filepath.Join(dir, "services")
@@ -24,10 +25,27 @@ func writeService(t *testing.T, dir, name, body string) {
 	}
 }
 
+// writeProfile writes a profile.yaml at the config-dir root.
+func writeProfile(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "profile.yaml"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// bindBaseURL writes a profile.yaml binding one service's base_url — the
+// portable-manifest replacement for an inline base_url. Manifests carry the
+// portable shape only; the per-user base_url lives in the profile.
+func bindBaseURL(t *testing.T, dir, name, baseURL string) {
+	t.Helper()
+	writeProfile(t, dir, "version: 1\nservices:\n  "+name+":\n    base_url: "+baseURL+"\n")
+}
+
 // TestDispatchSuccess drives a successful service command end-to-end through
 // Run(): it stands up an httptest server, points a no-auth manifest at it via a
-// temp config dir, and asserts the rendered body reaches stdout with exit 0.
-// No `op` call and no live network — the auth strategy is "none".
+// temp config dir (base_url bound in profile.yaml), and asserts the rendered
+// body reaches stdout with exit 0. No `op` call and no live network — the auth
+// strategy is "none".
 func TestDispatchSuccess(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +60,6 @@ func TestDispatchSuccess(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -52,6 +69,7 @@ commands:
     output:
       filter: map(.id)
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -75,7 +93,9 @@ commands:
 // TestDispatchSecretFailureExit3 proves a credential failure routed through a
 // QUERY-param secret exits 3 (auth), matching the auth-strategy path. The secret
 // resolver command points at a nonexistent binary so the failure is hermetic —
-// no real `op`, no network (the resolver fails before any request is sent).
+// no real `op`, no network (the resolver fails before any request is sent). The
+// base_url and the secret ref both bind in profile.yaml (the manifest is
+// portable and only declares the secret slot).
 func TestDispatchSecretFailureExit3(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -94,17 +114,24 @@ secret:
 	}
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 secrets:
-  api_key:
-    ref: op://vault/Radarr/api_key
+  api_key: {}
 commands:
   list:
     method: GET
     path: /api/v3/movie
     query: apikey={secret.api_key}
+`)
+	writeProfile(t, dir, `
+version: 1
+services:
+  radarr:
+    base_url: `+srv.URL+`
+    secrets:
+      api_key:
+        ref: op://vault/Radarr/api_key
 `)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
@@ -129,7 +156,6 @@ func TestDispatchRawOutput(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -139,6 +165,7 @@ commands:
     output:
       filter: map(.id)
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -161,7 +188,6 @@ func TestDispatchFilterFlag(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -171,6 +197,7 @@ commands:
     output:
       filter: map(.id)
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -198,7 +225,6 @@ func TestDispatchHTTPErrorExit4(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -206,6 +232,7 @@ commands:
     method: GET
     path: /api/v3/movie
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -225,7 +252,6 @@ func TestDispatchDecodeErrorExit6(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -235,6 +261,7 @@ commands:
     output:
       filter: map(.id)
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -257,7 +284,6 @@ func TestDispatchDryRunNoNetwork(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", `
 name: radarr
-base_url: `+srv.URL+`
 auth:
   strategy: none
 commands:
@@ -265,6 +291,7 @@ commands:
     method: GET
     path: /api/v3/movie
 `)
+	bindBaseURL(t, dir, "radarr", srv.URL)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -276,5 +303,46 @@ commands:
 	}
 	if !strings.Contains(out.String(), "GET "+srv.URL+"/api/v3/movie") {
 		t.Fatalf("dry-run stdout = %q, want the resolved request line", out.String())
+	}
+}
+
+// TestDispatchEnvURLBeatsProfile proves the surviving precedence chain end-to-end:
+// env override > profile. A portable manifest gets its base_url from profile.yaml
+// (a bogus host that must never be hit), while a <PREFIX>_URL env var points at
+// the real server — and the request goes to the env-override target, confirming
+// env beats the profile binding.
+func TestDispatchEnvURLBeatsProfile(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/api/v3/movie" {
+			t.Errorf("path = %q, want /api/v3/movie", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	writeService(t, dir, "radarr", `
+name: radarr
+env_prefix: RADARR
+auth:
+  strategy: none
+commands:
+  list:
+    method: GET
+    path: /api/v3/movie
+`)
+	// Profile binds a base_url that would fail if used; the env override must win.
+	bindBaseURL(t, dir, "radarr", "http://127.0.0.1:1")
+	t.Setenv("LABCTL_CONFIG_DIR", dir)
+	t.Setenv("RADARR_URL", srv.URL)
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitOK {
+		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("server hit %d times, want 1 (env override must beat the profile base_url)", hits.Load())
 	}
 }

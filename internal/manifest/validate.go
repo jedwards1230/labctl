@@ -64,6 +64,9 @@ func Validate(s *Service) error {
 // *ConfigError; keeping the body separate avoids double-wrapping at the many
 // internal fmt.Errorf call sites.
 func validate(s *Service) error {
+	if err := validateNoInManifestBinding(s); err != nil {
+		return err
+	}
 	if err := validateSpec(s); err != nil {
 		return err
 	}
@@ -122,6 +125,44 @@ func ValidateComplete(s *Service) error {
 	for name, sec := range s.Secrets {
 		if sec.Ref == "" && sec.Env == "" {
 			return &ConfigError{Err: fmt.Errorf("secret %q is unbound: set ref or env (bind it in profile.yaml)", name)}
+		}
+	}
+	return nil
+}
+
+// validateNoInManifestBinding enforces the single rule that makes profile.yaml
+// the sole binding mechanism: a manifest carries the portable SHAPE of a service
+// only — never THIS user's endpoints or credentials. Those bind exclusively via
+// profile.yaml (or an env override). Concretely, a raw manifest may NOT carry:
+//
+//   - a service base_url,
+//   - an endpoint base_url, or
+//   - a secret ref:.
+//
+// Each is environment/identity config (a LAN host, a vault path) that the
+// validator cannot tell apart from a public SaaS root, so there is NO exception
+// — not even for a fixed public API. Permitting any in-manifest base_url would
+// re-open the all-in-one door for everyone and defeat the decoupling; a base_url
+// is environment config anyway (point it at a staging/proxy/mock). A secret env:
+// stays allowed (a CI/devcontainer override convention, not vault-specific), as
+// do endpoint auth:/codec:. This runs on the RAW, pre-merge manifest; once the
+// profile merge supplies base_url/refs, ValidateComplete takes over.
+func validateNoInManifestBinding(s *Service) error {
+	name := s.Name
+	if name == "" {
+		name = "<name>"
+	}
+	if s.BaseURL != "" {
+		return fmt.Errorf("base_url is not allowed in a manifest; bind it in profile.yaml (services.%s.base_url)", name)
+	}
+	for epName, ep := range s.Endpoints {
+		if ep.BaseURL != "" {
+			return fmt.Errorf("endpoint %q: base_url is not allowed in a manifest; bind it in profile.yaml (services.%s.endpoints.%s.base_url)", epName, name, epName)
+		}
+	}
+	for secName, sec := range s.Secrets {
+		if sec.Ref != "" {
+			return fmt.Errorf("secret %q: ref is not allowed in a manifest; bind it in profile.yaml (services.%s.secrets.%s.ref)", secName, name, secName)
 		}
 	}
 	return nil

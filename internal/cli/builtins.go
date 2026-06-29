@@ -105,10 +105,13 @@ func (r *runner) cmdLint(loaded *manifest.Loaded, loadErr error) *cobra.Command 
 				names = []string{args[0]}
 			}
 			for _, name := range names {
-				if err := manifest.Validate(loaded.Services[name]); err != nil {
-					return fmt.Errorf("%s: %w", name, err)
-				}
-				// --strict adds the post-merge completeness check.
+				// Structural validation already ran on the RAW manifest during Load
+				// (loadService → Validate), which aborts the whole load on failure —
+				// so a service present in `loaded` is structurally valid. Re-running
+				// Validate here would now wrongly reject it: the loaded service has
+				// been profile-merged and carries base_url/refs, which the structural
+				// rule forbids in a manifest. --strict adds the post-merge
+				// completeness check instead.
 				if strict {
 					if err := manifest.ValidateComplete(loaded.Services[name]); err != nil {
 						return fmt.Errorf("%s: %w", name, err)

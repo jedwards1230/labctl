@@ -6,13 +6,12 @@ import (
 	"testing"
 )
 
-// svcManifest is a minimal no-auth radarr manifest used by the svc-namespace
-// tests. base_url points at a non-routable host; every test uses --dry-run so
-// nothing is ever sent.
+// svcManifest is a minimal no-auth PORTABLE radarr manifest used by the
+// svc-namespace tests. base_url binds via profile.yaml (bindBaseURL) to a
+// non-routable host; the resolve tests use --dry-run so nothing is ever sent.
 const svcManifest = `
 name: radarr
 description: movie manager
-base_url: http://movies.example
 auth:
   strategy: none
 commands:
@@ -27,6 +26,7 @@ commands:
 func TestSvcResolvesServiceCommand(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", svcManifest)
+	bindBaseURL(t, dir, "radarr", "http://movies.example")
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
@@ -42,6 +42,7 @@ func TestSvcResolvesServiceCommand(t *testing.T) {
 func TestSvcAliasResolves(t *testing.T) {
 	dir := t.TempDir()
 	writeService(t, dir, "radarr", svcManifest)
+	bindBaseURL(t, dir, "radarr", "http://movies.example")
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
