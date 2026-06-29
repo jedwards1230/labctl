@@ -44,6 +44,16 @@ Run `labctl init` (no argument) to provision this layout — it creates the dir,
 `services/`, a default `config.yaml`, and a commented `profile.yaml`, leaving any
 that already exist untouched.
 
+**You don't need any `services/` files to start.** 15 portable manifests
+(radarr, sonarr, prowlarr, bazarr, tdarr, n8n, authentik, harbor, abs, forgejo,
+sunshine, truenas, ts, contextforge, cloudflare) are **embedded in the binary**.
+They are the default catalog — `labctl catalog list` shows them, and a local
+`services/<name>.yaml` of the same name *overrides* the embedded one. `list`
+marks each service `embedded`, `local`, or `override`. Bind the catalog to your
+machine with a `profile.yaml` (below); reach for a local `services/` file only to
+add a new service or fork an embedded one (`labctl catalog show <name> >
+services/<name>.yaml`).
+
 A service ships as a **portable** manifest — it declares *what* the service is
 (commands, auth strategy, secret slots), with no machine-specific endpoint or
 credentials — and `profile.yaml` binds it to *this* machine:
@@ -86,8 +96,10 @@ level. Putting services in their own namespace means a user-defined service can
 never collide with a built-in like `list` or `doctor`:
 
 ```sh
-labctl list                           # all configured services (built-in)
-labctl svc                            # same list, under the svc namespace
+labctl list                           # all services (embedded + local), with source marker
+labctl catalog list                   # the embedded catalog (built-in manifests)
+labctl catalog show radarr            # dump an embedded manifest (fork into services/)
+labctl svc                            # same list as `list`, under the svc namespace
 labctl svc tdarr get /api/v2/status   # generic verb passthrough
 labctl svc tdarr status               # a named command, if the manifest defines one
 labctl svc radarr list --filter 'length'
@@ -101,17 +113,20 @@ labctl init myservice                 # scaffold a portable starter manifest (bu
 labctl init myservice --auth bearer -o services/myservice.yaml
 ```
 
-See [`examples/`](examples/) for fuller manifests (header-key, bearer, basic auth;
-named commands; pagination; multi-endpoint).
+The embedded catalog is the source of fuller manifests (header-key, bearer, basic
+auth; named commands; pagination; multi-endpoint; jsonrpc-ws) — read any with
+`labctl catalog show <name>`. [`examples/`](examples/) is a **profile-only** config
+dir: no `services/`, just an `examples/profile.yaml` binding all 15 embedded
+services to placeholder hosts (run `LABCTL_CONFIG_DIR=examples labctl lint --strict`).
 
 ### Portable manifests & profiles
 
-This is the default workflow, and the form every example under [`examples/`](examples/)
-ships in. `labctl init` provisions `config.yaml`, `services/`, and a `profile.yaml`.
-A **portable** manifest in `services/` declares *what* a service is (its commands,
-auth strategy, secret slots) and is identical for every user; the `profile.yaml`
-at the config root binds each service to *this* machine — `base_url`, secret
-`ref`s, and any per-machine endpoint/var/`tls_insecure` overrides.
+This is the default workflow. `labctl init` provisions `config.yaml`, `services/`,
+and a `profile.yaml`. A **portable** manifest — the embedded catalog's manifests,
+or one you write in `services/` — declares *what* a service is (its commands, auth
+strategy, secret slots) and is identical for every user; the `profile.yaml` at the
+config root binds each service to *this* machine — `base_url`, secret `ref`s, and
+any per-machine endpoint/var/`tls_insecure` overrides.
 
 Precedence at resolution time is **env override > profile > manifest**.
 
@@ -205,7 +220,8 @@ collector as-is); use TLS client certs or your collector's standard auth instead
 Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic`/
 `oauth2-client-credentials`/`ws-login` auth; scheme-dispatched secrets providers
 (1Password today, with optional service-account-token injection) and env
-override; OpenAPI inference (`spec:`); composed `steps:` pipelines; optional
+override; OpenAPI inference (`spec:`); composed `steps:` pipelines; an embedded
+catalog of 15 portable manifests (local `services/` overrides by name); optional
 OpenTelemetry tracing.
 
 `labctl init <service>` scaffolds a commented starter manifest (pick the auth

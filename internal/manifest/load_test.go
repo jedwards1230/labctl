@@ -91,8 +91,14 @@ func TestLoadMissingDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing dir should not error: %v", err)
 	}
-	if len(l.Services) != 0 {
-		t.Error("expected zero services")
+	// A missing config dir still yields the embedded catalog (no local overrides).
+	if len(l.Services) != len(CatalogNames()) {
+		t.Errorf("missing dir loaded %d services, want %d embedded", len(l.Services), len(CatalogNames()))
+	}
+	if svc, ok := l.Services["radarr"]; !ok {
+		t.Error("embedded radarr should be available with no config dir")
+	} else if got := l.OriginOf(svc.Name); got != OriginEmbedded {
+		t.Errorf("radarr origin = %q, want embedded", got)
 	}
 }
 

@@ -1,8 +1,5 @@
-# Phase-0 schema proof: the single-call commands (apps/clients/config/version)
-# execute today over http+basic; the composed `status` (multi-endpoint + XML)
-# lands with the pipeline engine in a later phase.
 name: sunshine
-description: Sunshine GameStream host (desktop-1)
+description: Sunshine GameStream host; confighttp API over https+basic
 env_prefix: SUNSHINE
 
 auth:

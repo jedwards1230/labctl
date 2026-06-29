@@ -14,16 +14,17 @@ func examplesDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("resolve examples dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "services")); err != nil {
-		t.Fatalf("examples/services not found at %s: %v", dir, err)
+	if _, err := os.Stat(filepath.Join(dir, "profile.yaml")); err != nil {
+		t.Fatalf("examples/profile.yaml not found at %s: %v", dir, err)
 	}
 	return dir
 }
 
-// TestExamplesLoadAndValidate turns the shipped examples/ set into a living
-// contract: every service manifest must load, validate structurally, and the
-// merged global config must pass ValidateConfig. This catches a malformed or
-// schema-drifted example before it reaches a user's config dir.
+// TestExamplesLoadAndValidate turns the shipped examples/ config into a living
+// contract. examples/ carries NO services/ dir — it is profile-only — so every
+// service comes from the embedded catalog and examples/profile.yaml binds it.
+// This proves a consumer can drop their vendored manifests entirely: the catalog
+// plus a profile is a complete, working config.
 //
 // It performs no network calls and resolves no secrets — Load is purely
 // structural (YAML parse + Validate + ValidateConfig + offline spec inference).
@@ -45,55 +46,31 @@ func TestExamplesLoadAndValidate(t *testing.T) {
 		t.Fatalf("ValidateConfig(examples/config.yaml): %v", err)
 	}
 
-	// Cross-check the loaded service count against the YAML files on disk so an
-	// example that silently fails to register (wrong extension, dir entry) is
-	// caught rather than skipped.
-	wantNames := exampleServiceNames(t, dir)
-	if len(loaded.Services) != len(wantNames) {
-		t.Fatalf("loaded %d services, want %d (from %v)", len(loaded.Services), len(wantNames), wantNames)
+	// examples/ ships no local services, so every service is the embedded catalog.
+	want := CatalogNames()
+	if len(loaded.Services) != len(want) {
+		t.Fatalf("loaded %d services, want %d embedded (%v)", len(loaded.Services), len(want), want)
 	}
 
-	for _, name := range wantNames {
+	for _, name := range want {
 		svc, ok := loaded.Services[name]
 		if !ok {
-			t.Errorf("example service %q did not register", name)
+			t.Errorf("embedded service %q did not register", name)
 			continue
+		}
+		if got := loaded.OriginOf(name); got != OriginEmbedded {
+			t.Errorf("%s origin = %q, want embedded (examples ships no local overrides)", name, got)
 		}
 		t.Run(name, func(t *testing.T) {
 			if err := Validate(svc); err != nil {
 				t.Fatalf("Validate(%s): %v", name, err)
 			}
-			// Load applies examples/profile.yaml, so the shipped example set must
-			// also be COMPLETE: every example ships in portable form (no base_url
-			// or secret ref in the manifest) and is bound to its endpoint and
-			// credentials via examples/profile.yaml. This proves the
-			// examples+profile are a working end-to-end config.
+			// examples/profile.yaml must bind every catalog service: a resolvable
+			// base_url and every declared secret bound. This proves the
+			// catalog+profile are a working end-to-end config.
 			if err := ValidateComplete(svc); err != nil {
 				t.Fatalf("ValidateComplete(%s): %v", name, err)
 			}
 		})
 	}
-}
-
-// exampleServiceNames returns the service selector names implied by the *.yaml /
-// *.yml files under examples/services (filename stem, matching Load's default).
-func exampleServiceNames(t *testing.T, dir string) []string {
-	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(dir, "services"))
-	if err != nil {
-		t.Fatalf("read examples/services: %v", err)
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() || !isYAML(e.Name()) {
-			continue
-		}
-		stem := e.Name()
-		stem = stem[:len(stem)-len(filepath.Ext(stem))]
-		names = append(names, stem)
-	}
-	if len(names) == 0 {
-		t.Fatal("no example service manifests found")
-	}
-	return names
 }

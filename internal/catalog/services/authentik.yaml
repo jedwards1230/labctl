@@ -1,0 +1,47 @@
+name: authentik
+description: Authentik SSO / identity provider (/api/v3); Bearer token, trailing-slash paths
+env_prefix: AUTHENTIK
+
+# Authentik requires a trailing slash on the path component (a bare path 404s).
+# path_rules.trailing_slash: before-query causes the engine to append "/" to the
+# path before the "?query" string, so each command path omits the trailing slash.
+path_rules:
+  trailing_slash: before-query
+
+# List responses are { pagination: {...}, results: [...] } — shaped per command below.
+
+auth:
+  strategy: bearer
+  value: "{secret.token}"
+
+secrets:
+  token:
+    env: AUTHENTIK_TOKEN
+    idiom: item-get
+
+commands:
+  version:
+    help: Authentik server + outpost version
+    method: GET
+    path: /admin/version
+    output: { filter: "{version:.version_current,latest:.version_latest,outdated:.outdated}" }
+  apps:
+    help: configured applications (name, slug, provider)
+    method: GET
+    path: /core/applications
+    output: { filter: "(.results // .) | map({name,slug,provider,launchUrl:.meta_launch_url})" }
+  providers:
+    help: all providers (name, type)
+    method: GET
+    path: /providers/all
+    output: { filter: "(.results // .) | map({pk,name,type:.verbose_name,component:.meta_model_name})" }
+  groups:
+    help: groups (name, member count)
+    method: GET
+    path: /core/groups
+    output: { filter: "(.results // .) | map({pk,name,superuser:.is_superuser,members:(.users_obj|length)})" }
+  users:
+    help: users (username, type, active)
+    method: GET
+    path: /core/users
+    output: { filter: "(.results // .) | map({pk,username,name,type,active:.is_active})" }

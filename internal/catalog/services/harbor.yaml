@@ -1,0 +1,37 @@
+name: harbor
+description: Harbor container registry; /api/v2.0; Basic auth
+env_prefix: HARBOR
+
+auth:
+  strategy: basic
+  username: "{secret.username}"
+  password: "{secret.password}"
+
+secrets:
+  username:
+    env: HARBOR_USER
+  password:
+    env: HARBOR_PASS
+
+commands:
+  health:
+    help: component health + overall status
+    method: GET
+    path: /health
+    output: { filter: "{status,components:(.components|map({name,status}))}" }
+  systeminfo:
+    help: Harbor version + auth mode
+    method: GET
+    path: /systeminfo
+    output: { filter: "{version:.harbor_version,authMode:.auth_mode,registryUrl:.registry_url,selfRegistration:.self_registration}" }
+  projects:
+    help: list projects (name, repos, proxy-cache)
+    method: GET
+    path: /projects
+    query: "page_size=100"
+    output: { filter: "map({name,repoCount:.repo_count,public:.metadata.public,registryId:.registry_id})" }
+  registries:
+    help: list registry endpoints (proxy-cache upstreams)
+    method: GET
+    path: /registries
+    output: { filter: "map({id,name,type,url,status})" }

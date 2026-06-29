@@ -26,7 +26,8 @@ safety/policy logic here.
 ```
 main.go                 entry → internal/cli
 internal/
-  manifest/   YAML model + XDG load/merge + schema validation
+  catalog/    portable service manifests embedded in the binary (//go:embed)
+  manifest/   YAML model + XDG load/merge + schema validation + embedded-catalog merge
   command/    format-neutral Command model + producers (commands: block, generic verbs)
   template/   {secret.X}/{env.X}/{arg.N}/{var} expansion (JSON braces pass through)
   secret/     scheme-dispatched Provider interface (op:// → 1Password) + env override
@@ -63,12 +64,23 @@ with on-disk token cache; OpenAPI inference via libopenapi (`spec:` + `spec_filt
 composed multi-step pipelines (`steps:` with extract/when/confirm/on_error); stdio
 MCP server (`labctl mcp`). The `truenas` and `sunshine` manifests execute fully.
 
+Embedded catalog (done): 15 portable manifests (`internal/catalog/services/`) are
+compiled into the binary via `//go:embed`, so consumers no longer vendor copies.
+`labctl catalog list` / `catalog show <name>` inspect/extract them.
+
 ## Conventions
 
 - stdout = data, stderr = diagnostics, real exit codes (0 ok, 2 usage, 3 auth,
   4 HTTP≥400, 5 network, 6 decode).
 - Secrets are refs (`op://...`) resolved at call time — never values in manifests,
   never in argv, redacted in verbose/dry-run output.
+- Services resolve from **two sources, local overrides embedded**: the embedded
+  catalog (`internal/catalog`, the 15 built-in portable manifests) is the
+  fallback, and a local `<config-dir>/services/<name>.yaml` of the same name
+  overrides it (marked `override` in `list`; a local-only service is `local`,
+  catalog-only is `embedded`). Two *local* files with one name is still a
+  duplicate error; a local file shadowing an embedded one is not. Absent a local
+  `services/` dir, all 15 come from the catalog.
 - A manifest is **portable** (what a service *is*); user-specific endpoints and
   credentials (`base_url`, secret `ref`s, per-machine endpoint/var/tls overrides)
   live in an optional `profile.yaml` at the config root. Precedence is **env

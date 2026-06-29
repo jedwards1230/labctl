@@ -1,0 +1,36 @@
+name: forgejo
+description: Forgejo git forge; /api/v1; "token" Authorization scheme
+env_prefix: FORGEJO
+
+auth:
+  strategy: bearer
+  scheme: token # Authorization: token <value>  (not Bearer)
+  value: "{secret.token}"
+
+secrets:
+  token:
+    env: FORGEJO_TOKEN
+    idiom: item-get
+
+commands:
+  version:
+    help: Forgejo server version
+    method: GET
+    path: /version
+    output: { filter: ".version" }
+  whoami:
+    help: authenticated token user
+    method: GET
+    path: /user
+    output: { filter: "{id,login,full_name,is_admin}" }
+  repos:
+    help: search repositories (id, full name, private)
+    method: GET
+    path: /repos/search
+    query: "limit=50"
+    output: { filter: "(.data // .) | map({id,fullName:.full_name,private,empty})" }
+  orgs:
+    help: list organizations
+    method: GET
+    path: /orgs
+    output: { filter: "map({id,username,visibility})" }

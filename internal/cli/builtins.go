@@ -20,6 +20,7 @@ func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadE
 	root.AddCommand(r.cmdLint(loaded, loadErr))
 	root.AddCommand(r.cmdDoctor(loaded))
 	root.AddCommand(r.cmdMCP())
+	root.AddCommand(r.cmdCatalog())
 	root.AddCommand(r.cmdVersion())
 	root.AddCommand(r.cmdSelfUpdate())
 }
@@ -47,10 +48,11 @@ func (r *runner) listServices(loaded *manifest.Loaded, loadErr error) error {
 	}
 	for _, name := range loaded.SortedServiceNames() {
 		svc := loaded.Services[name]
+		origin := string(loaded.OriginOf(name))
 		if svc.Description != "" {
-			_, _ = fmt.Fprintf(r.stdout, "%-14s %s\n", name, svc.Description)
+			_, _ = fmt.Fprintf(r.stdout, "%-14s %-9s %s\n", name, origin, svc.Description)
 		} else {
-			_, _ = fmt.Fprintln(r.stdout, name)
+			_, _ = fmt.Fprintf(r.stdout, "%-14s %s\n", name, origin)
 		}
 	}
 	return nil

@@ -1,10 +1,12 @@
-# labctl per-user profile. Binds the portable manifests under services/ to THIS
-# machine's endpoints and credentials. Every example ships in portable form (no
-# base_url, no secret ref in the manifest); the bindings below complete them.
+# labctl per-user profile. Binds the embedded catalog manifests to THIS machine's
+# endpoints and credentials. The catalog ships in portable form (no base_url, no
+# secret ref); the bindings below complete every service it provides — note there
+# is NO services/ dir here, so this profile alone makes examples/ a working config.
 # Precedence at resolution time: env override > profile > manifest.
 #
 # These are placeholders — replace the example.com hosts, 192.0.2.x addresses,
-# and op://vault/... refs with your own before use.
+# and op://vault/... refs with your own before use. `labctl catalog list` shows
+# every embedded service; `labctl catalog show <name>` dumps one to fork locally.
 version: 1
 services:
   radarr:
@@ -25,6 +27,27 @@ services:
       api_key: { ref: "op://vault/Prowlarr/api_key" }
   tdarr:
     base_url: https://tdarr.example.com
+  n8n:
+    base_url: https://n8n.example.com/api/v1
+    secrets:
+      api_key: { ref: "op://vault/n8n API/credential" }
+  authentik:
+    base_url: https://auth.example.com/api/v3
+    secrets:
+      token: { ref: "op://vault/Authentik API/token" }
+  harbor:
+    base_url: https://registry.example.com/api/v2.0
+    secrets:
+      username: { ref: "op://vault/Harbor/username" }
+      password: { ref: "op://vault/Harbor/password" }
+  abs:
+    base_url: https://audiobooks.example.com
+    secrets:
+      api_token: { ref: "op://vault/Audiobookshelf/api_token" }
+  forgejo:
+    base_url: https://git.example.com/api/v1
+    secrets:
+      token: { ref: "op://vault/Forgejo/token" }
   cloudflare:
     base_url: https://api.cloudflare.com/client/v4
     secrets:

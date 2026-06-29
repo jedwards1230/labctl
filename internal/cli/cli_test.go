@@ -21,16 +21,18 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
-// TestRunListEmptyConfig confirms an empty config dir is not an error — `list`
-// reports no services and exits 0.
+// TestRunListEmptyConfig confirms an empty config dir is not an error and still
+// lists the embedded catalog: with no local services/ dir, every built-in
+// service is available and marked `embedded`.
 func TestRunListEmptyConfig(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
 	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "No services configured") {
-		t.Errorf("list stdout = %q, want 'No services configured'", out.String())
+	got := out.String()
+	if !strings.Contains(got, "radarr") || !strings.Contains(got, "embedded") {
+		t.Errorf("list stdout = %q, want the embedded catalog (radarr + embedded marker)", got)
 	}
 }
 

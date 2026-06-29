@@ -10,7 +10,7 @@ auth:
 
 secrets:
   api_key:
-    # Reference by item title or id (op://<vault>/<item>/<field>).
+    # Bound in profile.yaml (by 1Password item-id to dodge title collisions).
     env: TRUENAS_API_KEY
 
 commands:

@@ -1,0 +1,45 @@
+name: n8n
+description: n8n workflow automation (/api/v1); X-N8N-API-KEY header, cursor paging
+env_prefix: N8N
+
+# List responses are { data: [...], nextCursor: "..." }.
+pagination:
+  style: cursor
+  param: cursor
+  next: ".nextCursor"
+  data: ".data"
+
+auth:
+  strategy: header-key
+  header: X-N8N-API-KEY
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    # field is 'credential' on newer items, 'password' on older ones — try both.
+    env: N8N_API_KEY
+    fields: [credential, password]
+
+commands:
+  workflows:
+    help: list workflows (id, name, active)
+    method: GET
+    path: /workflows
+    output: { filter: "(.data // .) | map({id,name,active,nodes:(.nodes|length)})" }
+  active:
+    help: list active workflows only
+    method: GET
+    path: /workflows
+    query: "active=true"
+    output: { filter: "(.data // .) | map({id,name,active})" }
+  tags:
+    help: list workflow tags
+    method: GET
+    path: /tags
+    output: { filter: "(.data // .) | map({id,name})" }
+  executions:
+    help: recent executions (id, workflow, status)
+    method: GET
+    path: /executions
+    query: "limit=20"
+    output: { filter: "(.data // .) | map({id,workflowId,finished,status,startedAt})" }

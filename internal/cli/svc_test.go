@@ -70,16 +70,16 @@ func TestSvcBareListsServices(t *testing.T) {
 	}
 }
 
-// TestSvcBareEmptyConfigGraceful confirms bare `labctl svc` with no configured
-// services does not crash — it reports "No services configured" and exits 0.
+// TestSvcBareEmptyConfigGraceful confirms bare `labctl svc` with no local config
+// does not crash — it lists the embedded catalog (parity with `list`) and exits 0.
 func TestSvcBareEmptyConfigGraceful(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
 	if code := Run([]string{"svc"}, &out, &errb); code != exitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
-	if !strings.Contains(out.String(), "No services configured") {
-		t.Fatalf("bare svc stdout = %q, want 'No services configured'", out.String())
+	if got := out.String(); !strings.Contains(got, "radarr") || !strings.Contains(got, "embedded") {
+		t.Fatalf("bare svc stdout = %q, want the embedded catalog (parity with `list`)", got)
 	}
 }
 
@@ -120,7 +120,7 @@ func TestRootBuiltinsStayAtRoot(t *testing.T) {
 		t.Fatalf("--help exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	help := out.String()
-	for _, builtin := range []string{"init", "list", "lint", "doctor", "mcp", "version", "self-update", "svc"} {
+	for _, builtin := range []string{"init", "list", "lint", "doctor", "mcp", "catalog", "version", "self-update", "svc"} {
 		if !strings.Contains(help, builtin) {
 			t.Fatalf("root help = %q, want top-level builtin %q", help, builtin)
 		}

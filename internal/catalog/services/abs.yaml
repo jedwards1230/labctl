@@ -1,0 +1,40 @@
+name: abs
+description: Audiobookshelf; /api base; status works unauthenticated
+env_prefix: ABS
+
+# Auth note: the authenticated commands need a durable Bearer token stored as an
+# `api_token` field (or set ABS_TOKEN). Minting a token requires a POST /login
+# flow that labctl does not implement yet — so only `status` (unauthenticated)
+# executes until you supply a token. Add an `api_token` ref in profile.yaml (or
+# set ABS_TOKEN) and libraries/me/users light up.
+auth:
+  strategy: bearer
+  value: "{secret.api_token}"
+
+secrets:
+  api_token:
+    # Bind a durable Bearer token in profile.yaml (or via the ABS_TOKEN env).
+    env: ABS_TOKEN
+
+commands:
+  status:
+    help: server version + init/auth state (unauthenticated /status)
+    method: GET
+    path: /status
+    noauth: true
+    output: { filter: "{serverVersion,isInit,language,authMethods}" }
+  libraries:
+    help: list libraries (id, name, mediaType)
+    method: GET
+    path: /api/libraries
+    output: { filter: ".libraries | map({id,name,mediaType,provider})" }
+  me:
+    help: current user + media-progress count
+    method: GET
+    path: /api/me
+    output: { filter: "{id,username,type,mediaProgressCount:(.mediaProgress|length)}" }
+  users:
+    help: list users (admin)
+    method: GET
+    path: /api/users
+    output: { filter: ".users | map({id,username,type,isActive})" }
