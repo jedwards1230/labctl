@@ -1,12 +1,53 @@
-# labctl per-user profile. Optional: binds portable manifests to THIS machine's
-# endpoints and credentials. Absent, every all-in-one manifest behaves unchanged.
+# labctl per-user profile. Binds the portable manifests under services/ to THIS
+# machine's endpoints and credentials. Every example ships in portable form (no
+# base_url, no secret ref in the manifest); the bindings below complete them.
 # Precedence at resolution time: env override > profile > manifest.
+#
+# These are placeholders — replace the example.com hosts, 192.0.2.x addresses,
+# and op://vault/... refs with your own before use.
 version: 1
 services:
-  portable-demo:
-    base_url: https://demo.example.com
+  radarr:
+    base_url: https://movies.example.com
     secrets:
-      api_key: { ref: "op://vault/Demo/api_key" }
-  # You can also override an all-in-one manifest's endpoint per machine, e.g.:
-  # radarr:
-  #   base_url: https://movies.my-lan.example
+      api_key: { ref: "op://vault/Radarr/api_key" }
+  sonarr:
+    base_url: https://tv.example.com
+    secrets:
+      api_key: { ref: "op://vault/Sonarr/api_key" }
+  bazarr:
+    base_url: https://bazarr.example.com
+    secrets:
+      api_key: { ref: "op://vault/Bazarr/api_key" }
+  prowlarr:
+    base_url: https://prowlarr.example.com
+    secrets:
+      api_key: { ref: "op://vault/Prowlarr/api_key" }
+  tdarr:
+    base_url: https://tdarr.example.com
+  cloudflare:
+    base_url: https://api.cloudflare.com/client/v4
+    secrets:
+      token: { ref: "op://vault/Cloudflare API Token/credential" }
+  contextforge:
+    base_url: https://mcp-gateway.example.com
+    secrets:
+      token: { ref: "op://vault/ContextForge/credential" }
+  ts:
+    base_url: https://api.tailscale.com
+    secrets:
+      client_id: { ref: "op://vault/Tailscale API/client_id" }
+      client_secret: { ref: "op://vault/Tailscale API/client_secret" }
+  truenas:
+    base_url: wss://192.0.2.36/api/current
+    tls_insecure: true
+    secrets:
+      api_key: { ref: "op://vault/TrueNAS/api_key" }
+  sunshine:
+    base_url: https://192.0.2.10:47990/api
+    tls_insecure: true
+    endpoints:
+      serverinfo: { base_url: http://192.0.2.10:47989 }
+    secrets:
+      username: { ref: "op://vault/Sunshine/username" }
+      password: { ref: "op://vault/Sunshine/password" }

@@ -1,6 +1,5 @@
 name: tdarr
 description: Tdarr distributed transcoding (LAN-only, no auth)
-base_url: https://tdarr.example.com
 env_prefix: TDARR
 
 auth: { strategy: none }

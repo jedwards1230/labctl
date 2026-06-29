@@ -3,11 +3,7 @@
 # lands with the pipeline engine in a later phase.
 name: sunshine
 description: Sunshine GameStream host (desktop-1)
-base_url: https://{host}:47990/api
 env_prefix: SUNSHINE
-tls_insecure: true # self-signed cert
-vars:
-  host: 192.0.2.10 # SUNSHINE_HOST overrides
 
 auth:
   strategy: basic
@@ -15,12 +11,11 @@ auth:
   password: "{secret.password}"
 
 secrets:
-  username: { ref: "op://vault/Sunshine/username" }
-  password: { ref: "op://vault/Sunshine/password" }
+  username: { env: SUNSHINE_USERNAME }
+  password: { env: SUNSHINE_PASSWORD }
 
 endpoints:
   serverinfo:
-    base_url: http://{host}:47989
     auth: { strategy: none }
     codec: { response: xml }
 

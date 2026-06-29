@@ -1,6 +1,5 @@
 name: contextforge
 description: ContextForge MCP Gateway (IBM mcp-context-forge) — federated tool registry, virtual servers, teams, and RBAC
-base_url: https://mcp-gateway.example.com
 env_prefix: CONTEXTFORGE
 
 auth:
@@ -10,7 +9,6 @@ auth:
 secrets:
   token:
     # 1Password item holding the gateway bearer token, field "credential".
-    ref: "op://vault/ContextForge/credential"
     env: CONTEXTFORGE_TOKEN
 
 commands:

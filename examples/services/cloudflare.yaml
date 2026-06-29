@@ -1,6 +1,5 @@
 name: cloudflare
 description: Cloudflare API (client/v4) — zones, DNS records, tunnels, account membership (read-only)
-base_url: https://api.cloudflare.com/client/v4
 env_prefix: CF
 
 vars:
@@ -15,7 +14,6 @@ auth:
 secrets:
   token:
     # 1Password item holding the Cloudflare API token, field "credential".
-    ref: "op://vault/Cloudflare API Token/credential"
     env: CF_API_TOKEN
 
 commands:

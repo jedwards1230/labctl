@@ -1,6 +1,5 @@
 name: prowlarr
 description: Prowlarr v1 (indexers)
-base_url: https://prowlarr.example.com
 env_prefix: PROWLARR
 
 auth:
@@ -10,7 +9,6 @@ auth:
 
 secrets:
   api_key:
-    ref: "op://vault/Prowlarr/api_key"
     env: PROWLARR_API_KEY
 
 commands:

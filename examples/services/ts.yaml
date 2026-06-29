@@ -1,6 +1,5 @@
 name: ts
 description: Tailscale tailnet API (read-only)
-base_url: https://api.tailscale.com
 env_prefix: TS
 
 auth:
@@ -11,10 +10,8 @@ auth:
 
 secrets:
   client_id:
-    ref: "op://vault/Tailscale API/client_id"
     env: TS_CLIENT_ID
   client_secret:
-    ref: "op://vault/Tailscale API/client_secret"
     env: TS_CLIENT_SECRET
 
 commands:
