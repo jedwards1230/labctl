@@ -54,11 +54,20 @@ func cacheFileName(dir, clientID, tokenURL, scope string) string {
 
 // readCache loads a cached token from disk and returns it if still valid
 // (more than 60 seconds before expiry). Returns empty string if absent,
-// unreadable, malformed, expired, or written with insecure permissions.
+// unreadable, malformed, expired, or written with insecure permissions. A
+// cached token that is expired (or within the safety margin) is best-effort
+// removed so an unusable bearer token does not linger on disk.
 func readCache(path string) string {
-	info, err := os.Stat(path)
+	// Lstat (not Stat) so a symlink at this path is rejected, not followed: the
+	// read and the eviction below must operate on the regular cache file only,
+	// never a symlink (defense-in-depth — os.Remove already unlinks a symlink
+	// itself rather than its target, but refuse symlinks outright).
+	info, err := os.Lstat(path)
 	if err != nil {
 		return ""
+	}
+	if !info.Mode().IsRegular() {
+		return "" // not a regular file (symlink/device/…) — refuse
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 && perm != 0o400 {
 		return "" // insecure permissions — discard
@@ -74,6 +83,10 @@ func readCache(path string) string {
 	if time.Now().Add(60 * time.Second).Before(entry.ExpiresAt) {
 		return entry.AccessToken
 	}
+	// Expired (or inside the 60s safety margin) — evict the stale entry so an
+	// expired bearer token does not linger on disk until the next refresh
+	// overwrites it. Best-effort: a failed unlink must not break the auth flow.
+	_ = os.Remove(path)
 	return ""
 }
 
