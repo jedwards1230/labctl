@@ -53,6 +53,20 @@ func TestValidateOAuth2FieldAliases(t *testing.T) {
 			auth: Auth{Strategy: "oauth2-client-credentials", TokenURL: "https://idp/token", ClientID: "cid"},
 			ok:   false,
 		},
+		{
+			// Mixed form: token_url from the new field, client_id from the legacy
+			// field — each pair resolves via its own fallback, so it's valid.
+			name: "mixed valid: new token_url + legacy username/password",
+			auth: Auth{Strategy: "oauth2-client-credentials", TokenURL: "https://idp/token", Username: "cid", Password: "sec"},
+			ok:   true,
+		},
+		{
+			// Mixed form with a hole: new token_url + legacy username, but neither
+			// client_secret nor password set — must fail (secret half is empty).
+			name: "mixed invalid: new token_url + legacy username, no secret",
+			auth: Auth{Strategy: "oauth2-client-credentials", TokenURL: "https://idp/token", Username: "cid"},
+			ok:   false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,6 +101,26 @@ func TestValidateOAuth2FieldAliases(t *testing.T) {
 	}
 	if got := legacy.OAuth2ClientSecret(); got != "old-sec" {
 		t.Errorf("OAuth2ClientSecret() fallback = %q, want old-sec", got)
+	}
+
+	// Secret-ref scan covers the NEW alias fields too: a {secret.X} in client_id
+	// must be caught at lint time when X is undeclared (proves the clean names get
+	// the same coverage as value/username/password).
+	undeclared := &Service{
+		Name:    "x",
+		Auth:    Auth{Strategy: "oauth2-client-credentials", TokenURL: "https://idp/token", ClientID: "{secret.cid}", ClientSecret: "sec"},
+		Secrets: map[string]Secret{},
+	}
+	if err := Validate(undeclared); err == nil {
+		t.Error("Validate() = nil, want an error: {secret.cid} in client_id is undeclared")
+	}
+	declared := &Service{
+		Name:    "x",
+		Auth:    Auth{Strategy: "oauth2-client-credentials", TokenURL: "https://idp/token", ClientID: "{secret.cid}", ClientSecret: "sec"},
+		Secrets: map[string]Secret{"cid": {Env: "X_CID"}},
+	}
+	if err := Validate(declared); err != nil {
+		t.Errorf("Validate() = %v, want nil: {secret.cid} in client_id is declared", err)
 	}
 }
 
