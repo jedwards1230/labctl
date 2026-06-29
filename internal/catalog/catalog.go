@@ -11,6 +11,7 @@ package catalog
 
 import (
 	"embed"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -27,9 +28,12 @@ var index = buildIndex()
 
 func buildIndex() map[string][]byte {
 	m := map[string][]byte{}
+	// The embed is a build-time invariant: a ReadDir/ReadFile failure here means a
+	// corrupt or misbuilt binary, so fail loud at startup rather than silently
+	// shipping a binary with no (or fewer) services that only breaks at runtime.
 	entries, err := files.ReadDir("services")
 	if err != nil {
-		return m
+		panic(fmt.Sprintf("embedded catalog corrupt: ReadDir(services): %v", err))
 	}
 	for _, e := range entries {
 		name := e.Name()
@@ -38,7 +42,7 @@ func buildIndex() map[string][]byte {
 		}
 		data, err := files.ReadFile("services/" + name)
 		if err != nil {
-			continue
+			panic(fmt.Sprintf("embedded catalog corrupt: ReadFile(services/%s): %v", name, err))
 		}
 		m[strings.TrimSuffix(name, ".yaml")] = data
 	}

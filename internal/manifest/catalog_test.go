@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -33,20 +34,28 @@ func TestCatalogHasExpectedServices(t *testing.T) {
 }
 
 // TestCatalogServicesValidate is the CI guard that every embedded manifest is a
-// well-formed manifest: it decodes and passes structural Validate. A malformed
-// catalog entry fails here rather than at a user's first call.
+// well-formed manifest. It runs the SAME full decode path Load uses
+// (decodeService → structural Validate → mergeSpecCommands), so a malformed
+// spec:/jq/step in an embedded manifest fails here rather than at a user's first
+// call. It also re-asserts structural Validate explicitly.
 func TestCatalogServicesValidate(t *testing.T) {
-	svcs, err := CatalogServices()
-	if err != nil {
-		t.Fatalf("CatalogServices: %v", err)
-	}
-	for _, svc := range svcs {
-		t.Run(svc.Name, func(t *testing.T) {
+	for _, name := range CatalogNames() {
+		raw, ok := CatalogManifest(name)
+		if !ok {
+			t.Fatalf("CatalogManifest(%q) missing", name)
+		}
+		t.Run(name, func(t *testing.T) {
+			// Exercise the real loader decode path (parse + Validate + spec
+			// inference), exactly as Load does for the embedded catalog.
+			svc, err := decodeService(raw, "catalog:"+name+".yaml", "", io.Discard)
+			if err != nil {
+				t.Fatalf("decodeService(%s): %v", name, err)
+			}
 			if svc.Name == "" {
-				t.Fatal("embedded service has empty name")
+				t.Fatalf("embedded service %q decoded to an empty name", name)
 			}
 			if err := Validate(svc); err != nil {
-				t.Fatalf("Validate(%s): %v", svc.Name, err)
+				t.Fatalf("Validate(%s): %v", name, err)
 			}
 		})
 	}
