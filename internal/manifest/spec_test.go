@@ -491,7 +491,6 @@ func TestLoadDegradesOnSpecFetchFailure(t *testing.T) {
 	// refused), plus one static command.
 	writeManifest(t, dir, "broken.yaml", `
 name: broken
-base_url: http://broken.example
 spec: http://127.0.0.1:1/openapi.yaml
 commands:
   ping:
@@ -501,7 +500,6 @@ commands:
 	// An unrelated, healthy service.
 	writeManifest(t, dir, "healthy.yaml", `
 name: healthy
-base_url: http://healthy.example
 commands:
   list:
     method: GET
@@ -530,8 +528,7 @@ commands:
 func TestValidateSpecFilter(t *testing.T) {
 	// spec_filter without spec is an error.
 	svc := &Service{
-		Name:    "x",
-		BaseURL: "http://x.example",
+		Name: "x",
 		SpecFilter: SpecFilter{
 			Include: []string{"pets"},
 		},
@@ -543,9 +540,8 @@ func TestValidateSpecFilter(t *testing.T) {
 
 func TestValidateEmptyFilterPattern(t *testing.T) {
 	svc := &Service{
-		Name:    "x",
-		BaseURL: "http://x.example",
-		Spec:    "openapi.yaml",
+		Name: "x",
+		Spec: "openapi.yaml",
 		SpecFilter: SpecFilter{
 			Include: []string{""},
 		},
@@ -571,7 +567,6 @@ func TestLoadWithSpec(t *testing.T) {
 
 	writeManifest(t, dir, "petstore.yaml", `
 name: petstore
-base_url: http://petstore.example
 spec: petstore.yaml
 `)
 	l, err := Load(dir)

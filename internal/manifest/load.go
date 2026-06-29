@@ -92,9 +92,11 @@ func Load(dir string) (*Loaded, error) {
 	}
 
 	// Per-user profile (optional). Loaded ONCE before the services loop and
-	// applied per-service after mergeDefaults. Absence ⇒ behavior identical to a
-	// manifest-only config. A malformed profile or unknown field is a config
-	// error (exit 2), like config.yaml.
+	// applied per-service after mergeDefaults. The profile is the SOLE binding
+	// mechanism: absent (or for an unbound service), a manifest stays portable —
+	// structurally valid but incomplete (no base_url/refs) until a profile binds
+	// it, which ValidateComplete enforces at execute time. A malformed profile or
+	// unknown field is a config error (exit 2), like config.yaml.
 	profile, err := LoadProfile(dir)
 	if err != nil {
 		return nil, err

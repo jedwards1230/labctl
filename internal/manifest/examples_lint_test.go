@@ -62,12 +62,15 @@ func TestExamplesLoadAndValidate(t *testing.T) {
 			t.Errorf("%s origin = %q, want embedded (examples ships no local overrides)", name, got)
 		}
 		t.Run(name, func(t *testing.T) {
-			if err := Validate(svc); err != nil {
-				t.Fatalf("Validate(%s): %v", name, err)
-			}
-			// examples/profile.yaml must bind every catalog service: a resolvable
-			// base_url and every declared secret bound. This proves the
-			// catalog+profile are a working end-to-end config.
+			// Structural Validate already ran on the RAW manifest during Load; it
+			// cannot be re-run on `svc` here because the loaded service has been
+			// profile-merged and now carries base_url/refs, which the structural
+			// "no in-manifest binding" rule forbids. Load applies
+			// examples/profile.yaml, so the embedded catalog must also be COMPLETE
+			// through it: every catalog manifest is portable (no base_url or secret
+			// ref) and bound to its endpoint and credentials via
+			// examples/profile.yaml. This proves the catalog+profile are a working
+			// end-to-end config.
 			if err := ValidateComplete(svc); err != nil {
 				t.Fatalf("ValidateComplete(%s): %v", name, err)
 			}

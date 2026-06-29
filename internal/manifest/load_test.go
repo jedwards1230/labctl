@@ -64,7 +64,6 @@ func writeManifest(t *testing.T, dir, name, body string) {
 func TestLoadMergeDefaults(t *testing.T) {
 	dir := t.TempDir()
 	writeManifest(t, dir, "tdarr.yaml", `
-base_url: http://tdarr.local
 auth: { strategy: none }
 `)
 	l, err := Load(dir)
@@ -103,22 +102,34 @@ func TestLoadMissingDir(t *testing.T) {
 }
 
 func TestValidateRejectsBad(t *testing.T) {
+	// Fixtures are portable (no base_url/ref) so each case exercises its INTENDED
+	// rule — an in-manifest base_url would otherwise short-circuit on the
+	// "no in-manifest binding" rule below. The binding-rule cases are explicit.
 	cases := map[string]*Service{
-		"bad transport":        {Name: "x", BaseURL: "http://h", Transport: "carrier-pigeon"},
-		"bad strategy":         {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "telepathy"}},
-		"undeclared secret":    {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "header-key", Header: "X", Value: "{secret.missing}"}},
-		"header-key no header": {Name: "x", BaseURL: "http://h", Auth: Auth{Strategy: "header-key", Value: "v"}},
+		"bad transport":        {Name: "x", Transport: "carrier-pigeon"},
+		"bad strategy":         {Name: "x", Auth: Auth{Strategy: "telepathy"}},
+		"undeclared secret":    {Name: "x", Auth: Auth{Strategy: "header-key", Header: "X", Value: "{secret.missing}"}},
+		"header-key no header": {Name: "x", Auth: Auth{Strategy: "header-key", Value: "v"}},
 		"bad svc pagination style": {
 			Name:       "x",
-			BaseURL:    "http://h",
 			Pagination: Pagination{Style: "infinite-scroll"},
 		},
 		"bad cmd pagination style": {
-			Name:    "x",
-			BaseURL: "http://h",
+			Name: "x",
 			Commands: map[string]Command{
 				"list": {Method: "GET", Path: "/", Pagination: Pagination{Style: "magic"}},
 			},
+		},
+		// The "no in-manifest binding" rule: base_url / endpoint base_url / secret
+		// ref all belong in profile.yaml, never the manifest.
+		"in-manifest base_url": {Name: "x", BaseURL: "https://h.example.com"},
+		"in-manifest endpoint base_url": {
+			Name:      "x",
+			Endpoints: map[string]Endpoint{"alt": {BaseURL: "https://alt.example.com"}},
+		},
+		"in-manifest secret ref": {
+			Name:    "x",
+			Secrets: map[string]Secret{"api_key": {Ref: "op://vault/X/api_key"}},
 		},
 	}
 	for name, svc := range cases {
@@ -128,18 +139,21 @@ func TestValidateRejectsBad(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsGood proves a well-formed PORTABLE manifest passes
+// structural Validate: no in-manifest base_url and an env-only secret slot (env
+// is a permitted in-manifest override; ref/base_url are not). Completeness
+// (a bound base_url + secrets) is ValidateComplete's job, not Validate's.
 func TestValidateAcceptsGood(t *testing.T) {
 	svc := &Service{
 		Name:    "radarr",
-		BaseURL: "https://movies.example.com",
 		Auth:    Auth{Strategy: "header-key", Header: "X-Api-Key", Value: "{secret.api_key}"},
-		Secrets: map[string]Secret{"api_key": {Ref: "op://vault/Radarr/api_key"}},
+		Secrets: map[string]Secret{"api_key": {Env: "RADARR_API_KEY"}},
 		Commands: map[string]Command{
 			"status": {Method: "GET", Path: "/api/v3/system/status"},
 		},
 	}
 	if err := Validate(svc); err != nil {
-		t.Fatalf("valid manifest rejected: %v", err)
+		t.Fatalf("valid portable manifest rejected: %v", err)
 	}
 }
 

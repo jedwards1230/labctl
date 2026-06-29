@@ -66,7 +66,6 @@ func TestRunUnknownSubcommandExits2(t *testing.T) {
 	}
 	svcManifest := []byte(`
 name: radarr
-base_url: http://localhost
 auth:
   strategy: none
 commands:
@@ -98,7 +97,6 @@ func TestRunConfigValidationErrorExits2(t *testing.T) {
 	// whole load before any service registers.
 	svcManifest := []byte(`
 name: radarr
-base_url: http://localhost
 auth:
   strategy: none
 commands:

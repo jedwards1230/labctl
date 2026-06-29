@@ -27,7 +27,6 @@ func TestValidateSteps(t *testing.T) {
 	withStep := func(s Step) *Service {
 		return &Service{
 			Name:     "x",
-			BaseURL:  "https://example.test",
 			Commands: map[string]Command{"go": {Steps: []Step{s}}},
 		}
 	}
@@ -71,7 +70,6 @@ func TestValidateJSONRPCParams(t *testing.T) {
 	mk := func(params string) *Service {
 		return &Service{
 			Name:      "x",
-			BaseURL:   "wss://example.test",
 			Transport: "jsonrpc-ws",
 			Commands:  map[string]Command{"go": {Method: "core.ping", Params: params}},
 		}

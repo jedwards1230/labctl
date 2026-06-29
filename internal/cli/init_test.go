@@ -198,10 +198,15 @@ commands:
   status: { method: GET, path: /s }
 `)
 	writeService(t, dir, "complete", `name: complete
-base_url: http://127.0.0.1:1
 auth: { strategy: none }
 commands:
   status: { method: GET, path: /s }
+`)
+	// Bind only the "complete" service — "portable" is intentionally left unbound.
+	writeProfile(t, dir, `version: 1
+services:
+  complete:
+    base_url: http://127.0.0.1:1
 `)
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
@@ -227,7 +232,7 @@ func TestMCPUnknownServiceErrors(t *testing.T) {
 	if err := os.MkdirAll(svcDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	manifestYAML := []byte("name: radarr\nbase_url: http://localhost\nauth:\n  strategy: none\ncommands:\n  list:\n    method: GET\n    path: /m\n")
+	manifestYAML := []byte("name: radarr\nauth:\n  strategy: none\ncommands:\n  list:\n    method: GET\n    path: /m\n")
 	if err := os.WriteFile(filepath.Join(svcDir, "radarr.yaml"), manifestYAML, 0o600); err != nil {
 		t.Fatal(err)
 	}

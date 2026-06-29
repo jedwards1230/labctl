@@ -11,14 +11,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Profile is the optional per-user profile.yaml at the config root. It binds
-// portable manifests to THIS user's endpoints and credentials. Absence ⇒
-// behavior identical to a manifest-only config.
+// Profile is the per-user profile.yaml at the config root. It binds portable
+// manifests to THIS user's endpoints and credentials and is the SOLE binding
+// mechanism — a manifest may not carry a base_url or secret ref itself. It is
+// optional only in that a config dir may have services not yet bound; such
+// services load but cannot execute until the profile binds them.
 //
 // A manifest describes WHAT a service is (its commands, auth strategy, secret
 // slots); the profile supplies the user-specific WHERE/WHICH (base_url, secret
 // refs, per-machine endpoint/var/tls overrides). Precedence at resolution time
-// is: env override > profile > manifest.
+// is: env override > profile.
 type Profile struct {
 	Version  int                       `yaml:"version"`
 	Services map[string]ServiceBinding `yaml:"services"`
@@ -48,10 +50,11 @@ type SecretBinding struct {
 }
 
 // LoadProfile reads <dir>/profile.yaml. A missing file is not an error (returns
-// nil, nil) — absence of a profile means a manifest-only config. The profile
-// model is fully closed, so decode strictly (KnownFields): a typo'd field is a
-// config error (exit 2) instead of being silently dropped. An empty file
-// (io.EOF) is valid and yields an empty profile.
+// nil, nil) — no profile means no service is bound yet (portable manifests load
+// but are incomplete until bound). The profile model is fully closed, so decode
+// strictly (KnownFields): a typo'd field is a config error (exit 2) instead of
+// being silently dropped. An empty file (io.EOF) is valid and yields an empty
+// profile.
 func LoadProfile(dir string) (*Profile, error) {
 	path := filepath.Join(dir, "profile.yaml")
 	b, err := os.ReadFile(path)

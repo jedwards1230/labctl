@@ -121,7 +121,6 @@ func TestLoadLocalOverridesEmbedded(t *testing.T) {
 	writeManifest(t, dir, "radarr.yaml", `
 name: radarr
 description: my overridden radarr
-base_url: http://radarr.local
 auth: { strategy: none }
 commands:
   ping: { method: GET, path: /ping }
@@ -157,7 +156,6 @@ func TestLoadLocalOnly(t *testing.T) {
 	dir := t.TempDir()
 	writeManifest(t, dir, "customsvc.yaml", `
 name: customsvc
-base_url: http://custom.local
 auth: { strategy: none }
 commands:
   ping: { method: GET, path: /ping }
@@ -184,7 +182,6 @@ func TestLoadDuplicateLocal(t *testing.T) {
 	body := func(file string) string {
 		return `
 name: dupe
-base_url: http://h
 auth: { strategy: none }
 commands:
   ping: { method: GET, path: /ping }

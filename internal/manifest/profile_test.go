@@ -160,56 +160,16 @@ services:
 	}
 }
 
-// TestLoadAllInOneNoProfileUnchanged is the load-bearing backward-compat proof:
-// an all-in-one manifest with NO profile.yaml loads to a service identical to
-// today — base_url + secret ref intact — and passes ValidateComplete.
-func TestLoadAllInOneNoProfileUnchanged(t *testing.T) {
+// TestLoadProfileSuppliesBaseURL proves the surviving binding precedence now that
+// a manifest can no longer carry base_url: a portable manifest gets its base_url
+// solely from profile.yaml. (The env > profile half of the chain — a
+// <PREFIX>_URL override beating the profile — is proven end-to-end in the
+// engine/dispatch layer, where the override lives; see
+// TestDispatchEnvURLBeatsProfile.)
+func TestLoadProfileSuppliesBaseURL(t *testing.T) {
 	dir := t.TempDir()
 	writeManifest(t, dir, "radarr.yaml", `
 name: radarr
-base_url: https://movies.example.com
-env_prefix: RADARR
-auth:
-  strategy: header-key
-  header: X-Api-Key
-  value: "{secret.api_key}"
-secrets:
-  api_key:
-    ref: "op://vault/Radarr/api_key"
-    env: RADARR_API_KEY
-commands:
-  status:
-    method: GET
-    path: /api/v3/system/status
-`)
-	// No profile.yaml written.
-
-	l, err := Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if l.Profile != nil {
-		t.Errorf("Profile should be nil when profile.yaml is absent, got %+v", l.Profile)
-	}
-	svc := l.Services["radarr"]
-	if svc.BaseURL != "https://movies.example.com" {
-		t.Errorf("base_url = %q, want manifest value intact", svc.BaseURL)
-	}
-	if svc.Secrets["api_key"].Ref != "op://vault/Radarr/api_key" {
-		t.Errorf("secret ref = %q, want manifest value intact", svc.Secrets["api_key"].Ref)
-	}
-	if err := ValidateComplete(svc); err != nil {
-		t.Fatalf("all-in-one radarr should be complete: %v", err)
-	}
-}
-
-// TestLoadProfileWinsOverManifest proves the profile overrides an all-in-one
-// manifest's base_url (profile precedence over the manifest).
-func TestLoadProfileWinsOverManifest(t *testing.T) {
-	dir := t.TempDir()
-	writeManifest(t, dir, "radarr.yaml", `
-name: radarr
-base_url: https://movies.example.com
 auth: { strategy: none }
 commands:
   status: { method: GET, path: /s }
@@ -226,7 +186,85 @@ services:
 		t.Fatal(err)
 	}
 	if got := l.Services["radarr"].BaseURL; got != "https://movies.my-lan.example" {
-		t.Errorf("base_url = %q, want the profile's override", got)
+		t.Errorf("base_url = %q, want the profile's binding", got)
+	}
+}
+
+// TestLoadRejectsInManifestBinding proves the structural "no in-manifest
+// binding" rule: a manifest carrying a base_url, an endpoint base_url, or a
+// secret ref is rejected by Load with a *ConfigError (exit-2 class), and the
+// diagnostic points at profile.yaml — the sole binding mechanism.
+func TestLoadRejectsInManifestBinding(t *testing.T) {
+	cases := map[string]string{
+		"service base_url": `
+name: x
+base_url: https://x.example.com
+auth: { strategy: none }
+commands:
+  s: { method: GET, path: /s }
+`,
+		"endpoint base_url": `
+name: x
+auth: { strategy: none }
+endpoints:
+  alt:
+    base_url: https://alt.example.com
+commands:
+  s: { method: GET, path: /s }
+`,
+		"secret ref": `
+name: x
+auth: { strategy: none }
+secrets:
+  api_key:
+    ref: "op://vault/X/api_key"
+commands:
+  s: { method: GET, path: /s }
+`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeManifest(t, dir, "x.yaml", body)
+			_, err := Load(dir)
+			if err == nil {
+				t.Fatal("expected rejection of in-manifest binding")
+			}
+			var cfgErr *ConfigError
+			if !errors.As(err, &cfgErr) {
+				t.Fatalf("want *ConfigError (exit-2 class), got %T: %v", err, err)
+			}
+			if !strings.Contains(err.Error(), "profile.yaml") {
+				t.Errorf("diagnostic should point at profile.yaml, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestLoadServiceRejectsInManifestBinding proves the same rule fires on the
+// single-file path (`lint <file>` → LoadService), not just the config-dir Load.
+func TestLoadServiceRejectsInManifestBinding(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.yaml")
+	if err := os.WriteFile(path, []byte(`
+name: x
+base_url: https://x.example.com
+auth: { strategy: none }
+commands:
+  s: { method: GET, path: /s }
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadService(path, Config{})
+	if err == nil {
+		t.Fatal("expected LoadService to reject an in-manifest base_url")
+	}
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("want *ConfigError (exit-2 class), got %T: %v", err, err)
+	}
+	if !strings.Contains(err.Error(), "profile.yaml") {
+		t.Errorf("diagnostic should point at profile.yaml, got: %v", err)
 	}
 }
 
@@ -301,8 +339,8 @@ func TestLoadProfileEmptyFile(t *testing.T) {
 		t.Errorf("empty profile should carry no bindings, got %d", len(p.Services))
 	}
 
-	// And a config dir with an empty profile.yaml still loads.
-	writeManifest(t, dir, "demo.yaml", "name: demo\nbase_url: https://demo.example.com\nauth: { strategy: none }\ncommands:\n  s: { method: GET, path: /s }\n")
+	// And a config dir with an empty profile.yaml still loads (portable manifest).
+	writeManifest(t, dir, "demo.yaml", "name: demo\nauth: { strategy: none }\ncommands:\n  s: { method: GET, path: /s }\n")
 	if _, err := Load(dir); err != nil {
 		t.Fatalf("Load with an empty profile.yaml should succeed: %v", err)
 	}
