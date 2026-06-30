@@ -175,7 +175,11 @@ changes.
 - **MCP server.** `labctl mcp` exposes every non-ignored command as a tool over
   either stdio MCP (default) or streamable-HTTP (`labctl mcp --http :9000`, MCP
   endpoint at `/mcp`, with a `GET /healthz` liveness probe for in-cluster
-  deployment behind an MCP gateway). Same executor as the CLI on both transports.
+  deployment behind an MCP gateway). It also exposes the generic verbs as
+  per-service tools — `<svc>_get/_post/_put/_patch/_delete` for HTTP services and
+  `<svc>_call` for jsonrpc-ws — so an agent has labctl's full write surface, not
+  just the named reads (`--read-only` drops the write verbs). Same executor as
+  the CLI on both transports.
   The streamable-HTTP `/mcp` endpoint has **no app-layer auth** — network
   reachability is the access boundary, so the [`labctl-mcp` chart](deploy/helm/labctl-mcp)
   ships an opt-in NetworkPolicy (`networkPolicy.enabled`) to restrict who can

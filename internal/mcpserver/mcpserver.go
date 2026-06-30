@@ -247,6 +247,11 @@ func BuildServer(
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "labctl", Version: version}, nil)
 
+	// registered tracks every tool name added so far, so a generic verb never
+	// double-registers (it also lets verb registration defer to a same-named
+	// manifest command).
+	registered := make(map[string]bool)
+
 	for _, svcName := range loaded.SortedServiceNames() {
 		if !opts.allowed(svcName) {
 			continue
@@ -279,13 +284,91 @@ func BuildServer(
 					return handleCall(ctx, req, capturedSvc, capturedCmd, cfg, tracer, stderr)
 				},
 			)
+			registered[capturedName] = true
 		}
+
+		// Generic verbs: expose labctl's write capability (and the jsonrpc
+		// `call`) as per-service MCP tools, mirroring the CLI's verb dispatch.
+		registerVerbTools(srv, svc, cmds, opts, cfg, tracer, stderr, registered)
 	}
 
 	return srv
 }
 
-// handleCall dispatches one tool call through engine.Execute.
+// verbToolOrder is the stable set of generic HTTP verbs exposed as MCP tools.
+// HEAD is intentionally omitted — a body-less existence probe isn't a useful
+// agent tool, and the CLI's HEAD verb has no MCP analogue here.
+var verbToolOrder = []string{"get", "post", "put", "patch", "delete"}
+
+// registerVerbTools adds the generic passthrough verbs for one service as MCP
+// tools: <svc>_get/_post/_put/_patch/_delete for http transports, or <svc>_call
+// for jsonrpc-ws. It mirrors the CLI's verb registration:
+//
+//   - A manifest command whose id equals the verb name wins (the generic tool is
+//     skipped), matching the CLI's `if _, taken := cmds[verb]` guard.
+//   - Write verbs (POST/PUT/PATCH/DELETE and the always-write `call`) are omitted
+//     under opts.ReadOnly, reusing the exact same gate as named commands.
+//   - registered guards against a duplicate AddTool of an already-claimed name.
+func registerVerbTools(
+	srv *mcp.Server,
+	svc *manifest.Service,
+	cmds map[string]*command.Command,
+	opts Options,
+	cfg manifest.Config,
+	tracer trace.Tracer,
+	stderr io.Writer,
+	registered map[string]bool,
+) {
+	add := func(verb, method string, write bool) {
+		// A named manifest command of the same id takes precedence.
+		if _, taken := cmds[verb]; taken {
+			return
+		}
+		if opts.ReadOnly && write {
+			return
+		}
+		name := toolName(svc.Name, verb)
+		if registered[name] {
+			return
+		}
+
+		// A stub command drives annotations + the read/write gate only; the real
+		// command is synthesized per call by command.Verb (which needs the path).
+		stub := &command.Command{ID: verb, Method: method, Write: write}
+
+		capturedSvc := svc
+		capturedVerb := verb
+		srv.AddTool(
+			&mcp.Tool{
+				Name:        name,
+				Description: verbDesc(svc.Name, verb),
+				InputSchema: verbSchema(verb),
+				Annotations: buildAnnotations(svc.Name, verb, stub),
+			},
+			func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return handleVerb(ctx, req, capturedSvc, capturedVerb, cfg, tracer, stderr)
+			},
+		)
+		registered[name] = true
+	}
+
+	if svc.Transport == "jsonrpc-ws" {
+		// jsonrpc write-ness depends on the runtime method, which isn't known at
+		// registration time, so `call` is treated as a write (gated by ReadOnly).
+		add("call", "", true)
+		return
+	}
+
+	// http (or empty/default) transport: the five HTTP verbs.
+	for _, verb := range verbToolOrder {
+		method := command.HTTPVerbs[verb] // GET/POST/PUT/PATCH/DELETE
+		add(verb, method, method != "GET")
+	}
+}
+
+// handleCall dispatches one named-command tool call through engine.Execute. It
+// extracts the arg0…argN positional template args from the request, then defers
+// the shared engine-execute-and-render path to executeAndRender.
 func handleCall(
 	ctx context.Context,
 	req *mcp.CallToolRequest,
@@ -295,18 +378,9 @@ func handleCall(
 	tracer trace.Tracer,
 	stderr io.Writer,
 ) (*mcp.CallToolResult, error) {
-	spanName := svc.Name + "_" + c.ID
-	ctx, span := tracer.Start(ctx, spanName)
-	defer span.End()
-
-	// Unmarshal raw arguments.
-	var raw map[string]any
-	if len(req.Params.Arguments) > 0 {
-		if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("unmarshal arguments: %v", err)), nil
-		}
+	raw, err := unmarshalArgs(req)
+	if err != nil {
+		return errorResult(fmt.Sprintf("unmarshal arguments: %v", err)), nil
 	}
 
 	// Extract positional args: arg0, arg1, …
@@ -321,11 +395,107 @@ func handleCall(
 		}
 	}
 
-	// Extract filter and raw flag.
 	filter, _ := raw["filter"].(string)
 	rawFlag, _ := raw["raw"].(bool)
 
-	engReq := engine.Request{
+	return executeAndRender(ctx, svc, c, args, filter, rawFlag, cfg, tracer, stderr), nil
+}
+
+// handleVerb dispatches one generic-verb tool call. It builds the args slice
+// command.Verb expects from the structured tool inputs (path/query/body or
+// method/params), synthesizes an ephemeral command, then runs the same
+// engine-execute-and-render path as handleCall. Like the CLI's execVerb, the
+// path/body/query/params are baked literally into the command, so the engine is
+// driven with Args: nil (verb commands do not use {arg.N} templating).
+func handleVerb(
+	ctx context.Context,
+	req *mcp.CallToolRequest,
+	svc *manifest.Service,
+	verb string,
+	cfg manifest.Config,
+	tracer trace.Tracer,
+	stderr io.Writer,
+) (*mcp.CallToolResult, error) {
+	raw, err := unmarshalArgs(req)
+	if err != nil {
+		return errorResult(fmt.Sprintf("unmarshal arguments: %v", err)), nil
+	}
+
+	filter, _ := raw["filter"].(string)
+	rawFlag, _ := raw["raw"].(bool)
+
+	c, err := command.Verb(svc.Transport, verb, verbArgs(verb, raw))
+	if err != nil {
+		// e.g. missing path/method — surface as a tool-level error, never a panic.
+		return errorResult(err.Error()), nil
+	}
+
+	return executeAndRender(ctx, svc, c, nil, filter, rawFlag, cfg, tracer, stderr), nil
+}
+
+// verbArgs maps the structured tool inputs of a generic-verb call to the
+// positional args command.Verb consumes. An empty path/method yields an empty
+// slice, which makes command.Verb return its usage error (surfaced as a
+// tool-level error by handleVerb) rather than running against an empty path.
+func verbArgs(verb string, raw map[string]any) []string {
+	if verb == "call" {
+		var args []string
+		if method, _ := raw["method"].(string); method != "" {
+			args = append(args, method)
+			if params, _ := raw["params"].(string); params != "" {
+				args = append(args, params)
+			}
+		}
+		return args
+	}
+
+	var args []string
+	if path, _ := raw["path"].(string); path != "" {
+		args = append(args, path)
+		switch verb {
+		case "get":
+			if q, _ := raw["query"].(string); q != "" {
+				args = append(args, q)
+			}
+		case "post", "put", "patch":
+			if b, _ := raw["body"].(string); b != "" {
+				args = append(args, b)
+			}
+		}
+	}
+	return args
+}
+
+// unmarshalArgs decodes the raw tool-call arguments into a map. A nil/empty
+// payload decodes to a nil map (every lookup misses, the SDK default).
+func unmarshalArgs(req *mcp.CallToolRequest) (map[string]any, error) {
+	var raw map[string]any
+	if len(req.Params.Arguments) > 0 {
+		if err := json.Unmarshal(req.Params.Arguments, &raw); err != nil {
+			return nil, err
+		}
+	}
+	return raw, nil
+}
+
+// executeAndRender runs one command through engine.Execute and renders the
+// result, owning the per-call span. Shared by handleCall (named commands) and
+// handleVerb (generic verbs) so both faces dispatch and render identically.
+func executeAndRender(
+	ctx context.Context,
+	svc *manifest.Service,
+	c *command.Command,
+	args []string,
+	filter string,
+	rawFlag bool,
+	cfg manifest.Config,
+	tracer trace.Tracer,
+	stderr io.Writer,
+) *mcp.CallToolResult {
+	ctx, span := tracer.Start(ctx, svc.Name+"_"+c.ID)
+	defer span.End()
+
+	res, err := engine.Execute(ctx, engine.Request{
 		Config:  cfg,
 		Service: svc,
 		Command: c,
@@ -335,18 +505,16 @@ func handleCall(
 			Raw:    rawFlag,
 		},
 		Runner: nil, // real op resolver
-	}
-
-	res, err := engine.Execute(ctx, engReq, stderr)
+	}, stderr)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error())
 	}
 
 	if res.DryRunMsg != "" {
 		span.SetStatus(codes.Ok, "")
-		return textResult(res.DryRunMsg), nil
+		return textResult(res.DryRunMsg)
 	}
 
 	var sb strings.Builder
@@ -358,11 +526,75 @@ func handleCall(
 	}, &sb); renderErr != nil {
 		span.RecordError(renderErr)
 		span.SetStatus(codes.Error, renderErr.Error())
-		return errorResult(renderErr.Error()), nil
+		return errorResult(renderErr.Error())
 	}
 
 	span.SetStatus(codes.Ok, "")
-	return textResult(sb.String()), nil
+	return textResult(sb.String())
+}
+
+// verbDesc builds a clear, self-documenting description for a generic-verb tool.
+// Write verbs are flagged MUTATING in the prose (and keep the [WRITE] signal
+// consistent with toolDesc).
+func verbDesc(svcName, verb string) string {
+	switch verb {
+	case "get":
+		return fmt.Sprintf("Generic GET against the %s API. path: API path (e.g. /api/v3/...); query: optional query string. Use filter for a jq expression over the JSON response.", svcName)
+	case "post":
+		return fmt.Sprintf("Generic POST against the %s API (MUTATING). path: API path; body: optional inline JSON. Use filter for a jq expression over the JSON response. [WRITE]", svcName)
+	case "put":
+		return fmt.Sprintf("Generic PUT (full replace) against the %s API (MUTATING). path: API path; body: optional inline JSON. Use filter for a jq expression over the JSON response. [WRITE]", svcName)
+	case "patch":
+		return fmt.Sprintf("Generic PATCH (partial update) against the %s API (MUTATING). path: API path; body: optional inline JSON. Use filter for a jq expression over the JSON response. [WRITE]", svcName)
+	case "delete":
+		return fmt.Sprintf("Generic DELETE against the %s API (MUTATING). path: API path. Use filter for a jq expression over the JSON response. [WRITE]", svcName)
+	case "call":
+		return fmt.Sprintf("Generic jsonrpc call against the %s API (MUTATING). method: jsonrpc method; params: optional JSON array. Use filter for a jq expression over the JSON response. [WRITE]", svcName)
+	}
+	return ""
+}
+
+// verbSchema builds the JSON Schema for a generic-verb tool. Unlike buildSchema
+// (arg0…argN positional), verbs take named inputs — path/query/body or
+// method/params — with path/method marked required. Every tool also carries the
+// universal filter (string) and raw (boolean) flags.
+func verbSchema(verb string) json.RawMessage {
+	props := make(map[string]any)
+	var required []string
+
+	switch verb {
+	case "get":
+		props["path"] = map[string]any{"type": "string", "description": "API path, e.g. /api/v3/core/users/"}
+		props["query"] = map[string]any{"type": "string", "description": "optional query string, e.g. search=foo&page=1"}
+		required = []string{"path"}
+	case "post", "put", "patch":
+		props["path"] = map[string]any{"type": "string", "description": "API path, e.g. /api/v3/core/users/"}
+		props["body"] = map[string]any{"type": "string", "description": "optional inline JSON request body"}
+		required = []string{"path"}
+	case "delete":
+		props["path"] = map[string]any{"type": "string", "description": "API path, e.g. /api/v3/core/users/42/"}
+		required = []string{"path"}
+	case "call":
+		props["method"] = map[string]any{"type": "string", "description": "jsonrpc method name, e.g. system.info"}
+		props["params"] = map[string]any{"type": "string", "description": "optional JSON array of params, e.g. [\"arg\", 2]"}
+		required = []string{"method"}
+	}
+
+	props["filter"] = map[string]any{"type": "string", "description": "jq filter over the response"}
+	props["raw"] = map[string]any{"type": "boolean", "description": "return raw response body"}
+
+	schema := map[string]any{
+		"type":       "object",
+		"properties": props,
+		"required":   required,
+	}
+
+	b, err := json.Marshal(schema)
+	if err != nil {
+		// Fallback to the bare minimum — should never happen.
+		return json.RawMessage(`{"type":"object","properties":{},"required":[]}`)
+	}
+	return b
 }
 
 // textResult wraps text in a successful CallToolResult.
