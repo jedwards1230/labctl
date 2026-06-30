@@ -94,6 +94,61 @@ func TestCatalogEditUnknown(t *testing.T) {
 	}
 }
 
+// TestCatalogEditRejectsUnsafeNames: a name that is not a single safe path
+// segment is rejected (exit usage) before any path is built — `catalog edit`
+// must not let "../../etc/passwd" escape the config dir. Nothing is written
+// anywhere, inside or outside the temp config dir.
+func TestCatalogEditRejectsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"..", "../../etc/passwd", "a/b", "", ".", "/etc/passwd", "foo/../bar"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := t.TempDir()
+			outside := t.TempDir() // a sibling dir a traversal might try to reach
+			t.Setenv("LABCTL_CONFIG_DIR", cfg)
+
+			var out, errb bytes.Buffer
+			if code := Run([]string{"catalog", "edit", name}, &out, &errb); code != exitUsage {
+				t.Fatalf("exit = %d, want %d (usage) for name %q", code, exitUsage, name)
+			}
+			assertDirEmpty(t, filepath.Join(cfg, "services"))
+			assertDirEmpty(t, outside)
+		})
+	}
+}
+
+// TestCatalogVendorRejectsUnsafeNames: same traversal guard on `catalog vendor` —
+// the name feeds both the override read path and the catalog/ write path.
+func TestCatalogVendorRejectsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"..", "../../etc/passwd", "a/b", "", ".", "/etc/passwd", "foo/../bar"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("LABCTL_CONFIG_DIR", cfg)
+			catDir := t.TempDir()
+
+			var out, errb bytes.Buffer
+			if code := Run([]string{"catalog", "vendor", name, "--catalog-dir", catDir}, &out, &errb); code != exitUsage {
+				t.Fatalf("exit = %d, want %d (usage) for name %q", code, exitUsage, name)
+			}
+			assertDirEmpty(t, catDir)
+		})
+	}
+}
+
+// assertDirEmpty fails if dir exists and contains any entry (a missing dir counts
+// as empty — the guard should prevent the dir from ever being created).
+func assertDirEmpty(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected %s to be empty, found %d entr(ies): %v", dir, len(entries), entries)
+	}
+}
+
 // TestCatalogVendorRoundTrip walks the full authoring loop: edit seeds the
 // override, vendor validates it and writes catalog/<name>.yaml under --catalog-dir,
 // byte-for-byte matching the override, and prints its absolute path.

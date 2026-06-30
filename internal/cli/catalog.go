@@ -5,11 +5,30 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/spf13/cobra"
 )
+
+// serviceNamePattern restricts a service name to a single, safe path segment: it
+// must start with an alphanumeric and contain only lowercase letters, digits, '-'
+// and '_'. Every real catalog stem matches (authentik, n8n, ts, radarr, …). It
+// rejects "", ".", "..", "a/b", and "../../etc/passwd" outright.
+var serviceNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// validateServiceName guards the catalog edit/vendor path construction against
+// traversal: name is unchecked CLI input used to build <config-dir>/services/
+// <name>.yaml and catalog/<name>.yaml, so it must be a single path segment that
+// cannot contain a separator or climb out of those directories. Called FIRST in
+// both commands, before any path is built. Returns a usageError (exit 2).
+func validateServiceName(name string) error {
+	if !serviceNamePattern.MatchString(name) {
+		return &usageError{fmt.Sprintf("invalid service name %q: must be a single path segment (^[a-z0-9][a-z0-9_-]*$)", name)}
+	}
+	return nil
+}
 
 // cmdCatalog inspects, edits, and vendors the built-in (embedded) manifest
 // catalog: the portable manifests compiled into the binary. They are the default
@@ -119,6 +138,9 @@ func (r *runner) cmdCatalogEdit() *cobra.Command {
 // dir. A full copy is required because a local override wholesale replaces the
 // embedded entry (no field-level merge); see cmdCatalogEdit's Long help.
 func (r *runner) catalogEdit(name string, force, open bool) error {
+	if err := validateServiceName(name); err != nil {
+		return err
+	}
 	data, ok := manifest.CatalogManifest(name)
 	if !ok {
 		return &usageError{fmt.Sprintf("no embedded service %q (see `labctl catalog list`)", name)}
@@ -178,6 +200,9 @@ func (r *runner) cmdCatalogVendor() *cobra.Command {
 
 // catalogVendor copies a validated local override into catalogDir/<name>.yaml.
 func (r *runner) catalogVendor(name, catalogDir string, force bool) error {
+	if err := validateServiceName(name); err != nil {
+		return err
+	}
 	src := filepath.Join(r.configDir(), "services", name+".yaml")
 	if _, statErr := os.Stat(src); statErr != nil {
 		if os.IsNotExist(statErr) {
