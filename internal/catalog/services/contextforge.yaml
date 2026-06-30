@@ -29,8 +29,10 @@ commands:
   teams:
     help: RBAC teams
     method: GET
-    path: /teams
-    output: { filter: "map({id,name,description})" }
+    # /teams (no slash) 307-redirects; the body is an object {teams:[...],total:N},
+    # not a bare array — unwrap .teams before mapping.
+    path: /teams/
+    output: { filter: ".teams | map({id,name,description})" }
   roles:
     help: RBAC roles
     method: GET
@@ -41,7 +43,11 @@ commands:
     method: GET
     path: /rbac/permissions/available
   tokens:
-    help: API tokens (GET /tokens/{id} does not expose scope — decode the JWT to confirm)
+    # Token management is walled off to interactive web/SSO sessions: a plain API
+    # token (the default bearer auth here) gets HTTP 403. Override CONTEXTFORGE_TOKEN
+    # with a web-login/SSO JWT to use this. GET /tokens/{id} also hides scope —
+    # decode the JWT to confirm.
+    help: API tokens (interactive web/SSO JWT only — API tokens get 403)
     method: GET
     path: /tokens
     output: { filter: "map({id,name})" }
