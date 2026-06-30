@@ -58,6 +58,41 @@ The pod also runs with `seccompProfile: RuntimeDefault` at both the pod and
 container level, alongside the existing non-root / read-only-rootfs /
 drop-ALL-capabilities hardening.
 
+### Restricting egress
+
+Egress is **unrestricted by default**. Because the pod holds an
+`OP_SERVICE_ACCOUNT_TOKEN`, restricting where it can connect limits the
+exfiltration path if it's ever compromised. Enable `networkPolicy.egress.enabled`
+and supply raw Kubernetes NetworkPolicy egress rules (objects with `to:` and
+`ports:` keys) for exactly what it needs — typically DNS, your LAN/service CIDR,
+and 443 out to 1Password (so `op` can resolve refs). With
+`networkPolicy.egress.enabled=true` and empty `egress.rules`, the pod is
+default-deny egress.
+
+```yaml
+networkPolicy:
+  enabled: true
+  egress:
+    enabled: true
+    rules:
+      # DNS to the cluster resolver
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+        ports:
+          - { port: 53, protocol: UDP }
+          - { port: 53, protocol: TCP }
+      # LAN service hosts
+      - to:
+          - ipBlock: { cidr: 192.168.8.0/24 }
+      # 443 out (1Password.com for op:// resolution)
+      - to:
+          - ipBlock: { cidr: 0.0.0.0/0, except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16] }
+        ports:
+          - { port: 443, protocol: TCP }
+```
+
 ## Federating into ContextForge
 
 Register a gateway with `transport: STREAMABLEHTTP` pointing at

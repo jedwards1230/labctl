@@ -19,7 +19,7 @@ func TestNewHTTPServerTimeouts(t *testing.T) {
 	if got, want := srv.ReadHeaderTimeout, 10*time.Second; got != want {
 		t.Errorf("ReadHeaderTimeout = %v, want %v", got, want)
 	}
-	if got, want := srv.ReadTimeout, 30*time.Second; got != want {
+	if got, want := srv.ReadTimeout, 60*time.Second; got != want {
 		t.Errorf("ReadTimeout = %v, want %v", got, want)
 	}
 	if got, want := srv.IdleTimeout, 120*time.Second; got != want {
