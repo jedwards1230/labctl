@@ -30,19 +30,27 @@ labctl self-update --check    # report current vs latest, download nothing
 ## Quick start
 
 `labctl` reads manifests from `$XDG_CONFIG_HOME/labctl` (or `~/.config/labctl`):
+Override the config dir with `LABCTL_CONFIG_DIR=<path>` or `--config-dir <path>`.
 
 ```
 ~/.config/labctl/
 ├── config.yaml            # global defaults + secret resolver
 ├── profile.yaml           # optional per-user binding (base_url + secret refs)
-└── services/
-    ├── radarr.yaml
-    └── tdarr.yaml
+└── services/              # optional: local overrides or new services
 ```
 
 Run `labctl init` (no argument) to provision this layout — it creates the dir,
 `services/`, a default `config.yaml`, and a commented `profile.yaml`, leaving any
 that already exist untouched.
+
+After `init`, bind one service in `profile.yaml` and verify everything is wired up:
+
+```sh
+# Add a service binding to profile.yaml, then:
+labctl lint --strict                  # confirm base_url + secrets are bound
+labctl svc <name> status              # smoke-test the live endpoint
+labctl svc <name> list --dry-run      # preview the resolved request without sending
+```
 
 **You don't need any `services/` files to start.** 15 portable manifests
 (radarr, sonarr, prowlarr, bazarr, tdarr, n8n, authentik, harbor, abs, forgejo,
@@ -90,8 +98,8 @@ level. Putting services in their own namespace means a user-defined service can
 never collide with a built-in like `list` or `doctor`:
 
 ```sh
-labctl list                           # all services (embedded + local), with source marker
-labctl catalog list                   # the embedded catalog (built-in manifests)
+labctl list                           # all services (embedded + local + override), with source marker
+labctl catalog list                   # embedded catalog only (no local/override markers)
 labctl catalog show radarr            # dump an embedded manifest to stdout
 labctl catalog edit radarr            # seed it into services/ for live editing (no rebuild)
 labctl catalog vendor radarr --catalog-dir ./catalog   # promote an edited override into a repo checkout
