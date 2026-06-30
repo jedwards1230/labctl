@@ -1,0 +1,333 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/jedwards1230/labctl/main/schema/manifest.schema.json",
+  "title": "labctl service manifest",
+  "description": "Schema for a PORTABLE labctl service manifest — a services/<name>.yaml or an embedded catalog manifest. It describes what a service IS (commands, auth strategy, secret slots) and is identical for every user. It is NOT a profile: a portable manifest may NOT carry a base_url (service or endpoint) or a secret ref — those bind in profile.yaml. This schema is additive (an editor aid); the authoritative structural check is `labctl lint` (manifest.Validate), which also enforces rules JSON Schema cannot express (undeclared secret references, jq validity, spec reachability, transport-dependent path requirements).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Selector; defaults to the filename stem."
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description shown in `labctl list`."
+    },
+    "env_prefix": {
+      "type": "string",
+      "description": "Prefix for env overrides: <PREFIX>_URL and <PREFIX>_<SECRET>."
+    },
+    "transport": {
+      "type": "string",
+      "enum": ["", "http", "jsonrpc-ws"],
+      "description": "http (default when empty) | jsonrpc-ws."
+    },
+    "tls_insecure": {
+      "type": "boolean",
+      "description": "curl -k equivalent; skip TLS verification."
+    },
+    "vars": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Template vars (host, …), env-overridable."
+    },
+    "endpoints": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/endpoint" },
+      "description": "Additional named endpoints for multi-endpoint services."
+    },
+    "auth": { "$ref": "#/definitions/auth" },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/secret" },
+      "description": "Credential slots declared by name; bound in profile.yaml."
+    },
+    "spec": {
+      "type": "string",
+      "description": "OpenAPI URL (relative to base_url) or file path — Phase 2 inference."
+    },
+    "spec_filter": { "$ref": "#/definitions/specFilter" },
+    "path_rules": { "$ref": "#/definitions/pathRules" },
+    "pagination": { "$ref": "#/definitions/pagination" },
+    "output": { "$ref": "#/definitions/output" },
+    "commands": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/command" },
+      "description": "Named commands for this service."
+    }
+  },
+  "definitions": {
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An additional named endpoint. A manifest endpoint may NOT carry base_url (bind it in profile.yaml).",
+      "properties": {
+        "auth": { "$ref": "#/definitions/auth" },
+        "tls_insecure": {
+          "type": "boolean",
+          "description": "Per-endpoint TLS verification skip."
+        },
+        "codec": { "$ref": "#/definitions/codec" }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Credential strategy and its parameters. Fields are a superset across strategies; only those relevant to `strategy` are read.",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "",
+            "none",
+            "header-key",
+            "bearer",
+            "basic",
+            "oauth2-client-credentials",
+            "ws-login",
+            "login-flow",
+            "external-tool"
+          ],
+          "description": "Credential strategy (empty inherits/none)."
+        },
+        "header": { "type": "string", "description": "header-key: header name." },
+        "scheme": { "type": "string", "description": "bearer: scheme (Bearer|token|…)." },
+        "value": { "type": "string", "description": "header-key/bearer token template (also oauth2 token_url fallback)." },
+        "username": { "type": "string", "description": "basic username (also oauth2 client_id fallback)." },
+        "password": { "type": "string", "description": "basic password (also oauth2 client_secret fallback)." },
+        "method": { "type": "string", "description": "ws-login jsonrpc method." },
+        "params": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ws-login params (templated)."
+        },
+        "token_url": { "type": "string", "description": "oauth2-client-credentials: token endpoint (fallback: value)." },
+        "client_id": { "type": "string", "description": "oauth2-client-credentials: client_id (fallback: username)." },
+        "client_secret": { "type": "string", "description": "oauth2-client-credentials: client_secret (fallback: password)." }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "strategy": { "const": "header-key" } },
+            "required": ["strategy"]
+          },
+          "then": {
+            "required": ["header", "value"],
+            "properties": {
+              "header": { "minLength": 1 },
+              "value": { "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "bearer" } },
+            "required": ["strategy"]
+          },
+          "then": {
+            "required": ["value"],
+            "properties": { "value": { "minLength": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "basic" } },
+            "required": ["strategy"]
+          },
+          "then": {
+            "required": ["username", "password"],
+            "properties": {
+              "username": { "minLength": 1 },
+              "password": { "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "oauth2-client-credentials" } },
+            "required": ["strategy"]
+          },
+          "then": {
+            "allOf": [
+              {
+                "anyOf": [
+                  { "required": ["token_url"], "properties": { "token_url": { "minLength": 1 } } },
+                  { "required": ["value"], "properties": { "value": { "minLength": 1 } } }
+                ]
+              },
+              {
+                "anyOf": [
+                  { "required": ["client_id"], "properties": { "client_id": { "minLength": 1 } } },
+                  { "required": ["username"], "properties": { "username": { "minLength": 1 } } }
+                ]
+              },
+              {
+                "anyOf": [
+                  { "required": ["client_secret"], "properties": { "client_secret": { "minLength": 1 } } },
+                  { "required": ["password"], "properties": { "password": { "minLength": 1 } } }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A credential reference slot — never a value. A manifest may NOT carry a ref (bind it in profile.yaml).",
+      "properties": {
+        "env": { "type": "string", "description": "Env var that overrides the resolver." },
+        "fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered field fallback (e.g. [credential, password])."
+        },
+        "idiom": {
+          "type": "string",
+          "enum": ["", "read", "item-get", "item-json"],
+          "description": "read (default) | item-get | item-json."
+        }
+      }
+    },
+    "specFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Prunes the inferred command set (Phase 2).",
+      "properties": {
+        "include": { "type": "array", "items": { "type": "string" } },
+        "exclude": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "pathRules": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-service URL quirks.",
+      "properties": {
+        "trailing_slash": {
+          "type": "string",
+          "enum": ["", "before-query"],
+          "description": "before-query appends '/' to the path before the '?query'."
+        }
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pagination style and its parameters.",
+      "properties": {
+        "style": {
+          "type": "string",
+          "enum": ["", "none", "cursor", "page-number", "page-until-short", "fixed-query"],
+          "description": "Pagination style (empty same as none)."
+        },
+        "param": { "type": "string", "description": "Query param name (page|start|cursor)." },
+        "next": { "type": "string", "description": "jq path to the next-cursor in the response." },
+        "data": { "type": "string", "description": "jq path to the item array to unwrap." },
+        "query": { "type": "string", "description": "fixed-query string." }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Output filtering and render mode.",
+      "properties": {
+        "default_filter": { "type": "string", "description": "Default gojq filter." },
+        "filter": { "type": "string", "description": "Per-command alias for default_filter." },
+        "mode": {
+          "type": "string",
+          "enum": ["", "json", "raw", "scalar", "table"],
+          "description": "json|raw|scalar (table render deferred)."
+        }
+      }
+    },
+    "codec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Request/response encoding for non-JSON endpoints.",
+      "properties": {
+        "request": {
+          "type": "string",
+          "enum": ["", "json", "form"],
+          "description": "Request body encoding."
+        },
+        "response": {
+          "type": "string",
+          "enum": ["", "json", "xml", "hujson"],
+          "description": "Response decoding."
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One entry in commands: a single request or a steps pipeline.",
+      "properties": {
+        "help": { "type": "string", "description": "Help text shown in service help." },
+        "method": { "type": "string", "description": "HTTP verb OR jsonrpc method name." },
+        "path": { "type": "string", "description": "Request path." },
+        "query": { "type": "string", "description": "Query string." },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Per-command request headers."
+        },
+        "body": { "type": "string", "description": "Inline JSON or @file." },
+        "params": { "type": "string", "description": "jsonrpc params (templated JSON array)." },
+        "noauth": { "type": "boolean", "description": "Skip auth for this command." },
+        "codec": { "$ref": "#/definitions/codec" },
+        "endpoint": { "type": "string", "description": "Named endpoint (default if empty)." },
+        "output": { "$ref": "#/definitions/output" },
+        "pagination": { "$ref": "#/definitions/pagination" },
+        "mcp_ignore": { "type": "boolean", "description": "Hide this command from the MCP tool set." },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/step" },
+          "description": "Non-empty = composed (pipeline) command."
+        }
+      },
+      "anyOf": [
+        { "required": ["method"] },
+        { "required": ["steps"] }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One stage in a composed command. Must target a path or a named endpoint.",
+      "properties": {
+        "id": { "type": "string", "description": "Step id (for diagnostics / references)." },
+        "endpoint": { "type": "string", "description": "Named endpoint for this step." },
+        "method": { "type": "string", "description": "HTTP verb OR jsonrpc method." },
+        "path": { "type": "string", "description": "Request path." },
+        "query": { "type": "string", "description": "Query string." },
+        "body": { "type": "string", "description": "Inline JSON or @file." },
+        "decode": { "type": "string", "description": "Response decode hint (e.g. xml)." },
+        "when": { "type": "string", "description": "jq guard; step runs only when truthy." },
+        "confirm": { "type": "string", "description": "Confirmation message; aborts unless --yes clears it." },
+        "body_transform": { "type": "string", "description": "jq applied to the body before send." },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Per-step request headers."
+        },
+        "extract": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "var → jq expression captured from the response."
+        },
+        "capture_header": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "var → response header name to capture."
+        },
+        "on_error": { "$ref": "#/definitions/step" }
+      },
+      "anyOf": [
+        { "required": ["path"] },
+        { "required": ["endpoint"] }
+      ]
+    }
+  }
+}

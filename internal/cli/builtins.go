@@ -21,6 +21,7 @@ func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadE
 	root.AddCommand(r.cmdDoctor(loaded))
 	root.AddCommand(r.cmdMCP())
 	root.AddCommand(r.cmdCatalog())
+	root.AddCommand(r.cmdSchema())
 	root.AddCommand(r.cmdVersion())
 	root.AddCommand(r.cmdSelfUpdate())
 }

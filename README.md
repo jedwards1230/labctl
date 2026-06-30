@@ -164,6 +164,31 @@ bound `ref`/`env` for every declared secret) is enforced post-merge at execute
 time, surfaced by `labctl lint --strict`, and reported by `labctl doctor` (which
 prints `incomplete: …` for an unbound service instead of probing it).
 
+### Manifest JSON Schema (editor support)
+
+`labctl schema` prints a hand-authored JSON Schema (draft-07) for the **portable
+manifest** shape. Pipe it next to your manifests and point your editor's
+yaml-language-server at it for completion + inline validation while authoring:
+
+```bash
+labctl schema > manifest.schema.json
+```
+
+```yaml
+# yaml-language-server: $schema=./manifest.schema.json
+name: radarr
+# …
+```
+
+You can point the modeline at the raw GitHub URL instead of a local file:
+`# yaml-language-server: $schema=https://raw.githubusercontent.com/jedwards1230/labctl/main/schema/manifest.schema.json`.
+
+The schema validates the portable shape (commands, auth strategy, secret slots);
+it deliberately forbids `base_url` and secret `ref`s, which belong in
+`profile.yaml`. It is an additive editor aid — the authoritative check stays
+`labctl lint`, which also enforces rules JSON Schema can't express (undeclared
+secret references, jq validity, spec reachability).
+
 ### Secrets
 
 `config.yaml` declares scheme-dispatched secret providers. A ref routes to a

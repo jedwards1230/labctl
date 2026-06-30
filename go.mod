@@ -7,6 +7,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pb33f/libopenapi v0.38.3
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0
