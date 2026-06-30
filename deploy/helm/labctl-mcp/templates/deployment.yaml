@@ -20,6 +20,9 @@ spec:
         {{- if or .Values.config.configYaml .Values.config.profileYaml }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- end }}
+        {{- if .Values.config.servicesYaml }}
+        checksum/services: {{ include (print $.Template.BasePath "/configmap-services.yaml") . | sha256sum }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -81,6 +84,11 @@ spec:
               mountPath: /config
               readOnly: true
             {{- end }}
+            {{- if .Values.config.servicesYaml }}
+            - name: services
+              mountPath: /config/services
+              readOnly: true
+            {{- end }}
       volumes:
         - name: home
           emptyDir: {}
@@ -90,6 +98,11 @@ spec:
         - name: config
           configMap:
             name: {{ include "labctl-mcp.fullname" . }}-config
+        {{- end }}
+        {{- if .Values.config.servicesYaml }}
+        - name: services
+          configMap:
+            name: {{ include "labctl-mcp.fullname" . }}-services
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

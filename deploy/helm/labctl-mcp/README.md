@@ -24,6 +24,7 @@ helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
 | `mcp.services` | `[]` | `--service` allowlist (empty = all) |
 | `config.profileYaml` | `""` | per-env binding (base_url + op:// refs) → `/config/profile.yaml` |
 | `config.configYaml` | `""` | optional `/config/config.yaml` |
+| `config.servicesYaml` | `{}` | map of service-name → manifest YAML; each entry mounts as `/config/services/<name>.yaml`, overriding the embedded catalog without a rebuild |
 | `auth.existingSecret.name` | `""` | secret holding the op service-account token |
 | `auth.onePasswordItem.itemPath` | `""` | render a OnePasswordItem CRD instead (1Password operator) |
 | `ingress.enabled` | `false` | expose via Ingress |

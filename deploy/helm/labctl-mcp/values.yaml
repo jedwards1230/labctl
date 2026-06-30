@@ -32,6 +32,17 @@ mcp:
 config:
   configYaml: ""
   profileYaml: ""
+  # servicesYaml: optional map of service-name → manifest YAML string.
+  # Each entry is rendered into a separate ConfigMap and mounted at
+  # <config-dir>/services/<name>.yaml, overriding or supplementing the
+  # embedded catalog — WITHOUT rebuilding the image.
+  # Example:
+  #   servicesYaml:
+  #     radarr: |
+  #       name: radarr
+  #       auth: { strategy: header-key, ... }
+  #       ...
+  servicesYaml: {}
 
 # 1Password service-account token used by `op` to resolve op:// refs.
 # Pick exactly one source. existingSecret is the portable default; the homelab

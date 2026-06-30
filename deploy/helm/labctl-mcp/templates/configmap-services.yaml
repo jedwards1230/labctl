@@ -1,0 +1,13 @@
+{{- if .Values.config.servicesYaml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "labctl-mcp.fullname" . }}-services
+  labels:
+    {{- include "labctl-mcp.labels" . | nindent 4 }}
+data:
+  {{- range $name, $yaml := .Values.config.servicesYaml }}
+  {{ $name }}.yaml: |
+    {{- $yaml | nindent 4 }}
+  {{- end }}
+{{- end }}
