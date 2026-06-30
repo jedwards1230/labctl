@@ -1,0 +1,17 @@
+{{- if or .Values.config.configYaml .Values.config.profileYaml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "labctl-mcp.fullname" . }}-config
+  labels:
+    {{- include "labctl-mcp.labels" . | nindent 4 }}
+data:
+  {{- if .Values.config.configYaml }}
+  config.yaml: |
+    {{- .Values.config.configYaml | nindent 4 }}
+  {{- end }}
+  {{- if .Values.config.profileYaml }}
+  profile.yaml: |
+    {{- .Values.config.profileYaml | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,19 @@
+labctl-mcp is deployed.
+
+MCP endpoint (streamable-HTTP):
+  http://{{ include "labctl-mcp.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}{{ .Values.mcp.path }}
+
+Tool exposure:
+  read-only : {{ .Values.mcp.readOnly }}
+  services  : {{ if .Values.mcp.services }}{{ join ", " .Values.mcp.services }}{{ else }}all{{ end }}
+
+{{- $secretName := include "labctl-mcp.secretName" . }}
+{{- if not $secretName }}
+
+WARNING: no op service-account token configured (auth.existingSecret.name and
+auth.onePasswordItem.itemPath are both empty). op:// secret resolution will fail
+at call time. Set one of them.
+{{- end }}
+
+Federate it into an MCP gateway (ContextForge) as a STREAMABLEHTTP gateway
+pointing at the endpoint above.

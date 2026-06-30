@@ -172,8 +172,10 @@ changes.
 - **Composed pipelines.** A command can declare `steps:` instead of a single
   path — each step issues a request, extracts variables, and feeds the next. Use
   `when:`, `confirm:`, `on_error:`, and `body_transform:` for control flow.
-- **MCP server.** `labctl mcp` speaks stdio MCP, exposing every non-ignored
-  command as a tool. Same executor as the CLI.
+- **MCP server.** `labctl mcp` exposes every non-ignored command as a tool over
+  either stdio MCP (default) or streamable-HTTP (`labctl mcp --http :9000`, MCP
+  endpoint at `/mcp`, with a `GET /healthz` liveness probe for in-cluster
+  deployment behind an MCP gateway). Same executor as the CLI on both transports.
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. A ref is routed to a provider by its
   URI scheme (`op://` → the 1Password provider; the seam is open for `aws://`,
@@ -223,10 +225,11 @@ OpenTelemetry tracing.
 
 `labctl init <service>` scaffolds a commented starter manifest (pick the auth
 stanza with `--auth`, write a file with `-o`) that validates against `labctl
-lint`. The stdio MCP server (`labctl mcp`) annotates every tool with the
+lint`. The MCP server (`labctl mcp`, stdio by default or streamable-HTTP via
+`--http :9000` with the endpoint at `/mcp`) annotates every tool with the
 read-only / destructive / idempotent / open-world hints derived from the
 command, and accepts `--read-only` (omit write tools) and `--service` (restrict
-to named services); both filters compose.
+to named services); both filters compose and apply to either transport.
 
 ## Contributing
 

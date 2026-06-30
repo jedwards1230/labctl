@@ -1,0 +1,10 @@
+# Keep the build context lean — only source needed for `go build`.
+.git
+.github
+worktrees
+deploy
+examples
+*.md
+labctl
+coverage.out
+.golangci.yml

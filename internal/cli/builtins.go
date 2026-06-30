@@ -191,12 +191,17 @@ func probeSkip(svc *manifest.Service) (string, bool) {
 func (r *runner) cmdMCP() *cobra.Command {
 	var readOnly bool
 	var services []string
+	var httpAddr string
 	cmd := &cobra.Command{
 		Use:   "mcp",
-		Short: "serve manifests as MCP tools over stdio",
-		Long: "Serve every non-ignored command as an MCP tool over stdio.\n\n" +
+		Short: "serve manifests as MCP tools over stdio or streamable-HTTP",
+		Long: "Serve every non-ignored command as an MCP tool.\n\n" +
+			"By default the server speaks stdio MCP. Pass --http <addr> (e.g.\n" +
+			"--http :9000 or --http 127.0.0.1:9000) to serve streamable-HTTP instead,\n" +
+			"with the MCP endpoint at /mcp and a GET /healthz liveness probe — suitable\n" +
+			"for in-cluster deployment behind an MCP gateway.\n\n" +
 			"--read-only omits write tools entirely; --service restricts the tool set\n" +
-			"to the named service(s). Both filters compose.",
+			"to the named service(s). Both filters compose and apply to either transport.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if r.loaded == nil || len(r.loaded.Services) == 0 {
 				return fmt.Errorf("no services configured; add manifests under %s/services/", manifest.ConfigDir())
@@ -205,11 +210,15 @@ func (r *runner) cmdMCP() *cobra.Command {
 				return &usageError{err.Error()}
 			}
 			opts := mcpserver.Options{ReadOnly: readOnly, Services: services}
+			if httpAddr != "" {
+				return mcpserver.ServeHTTP(cmd.Context(), httpAddr, r.loaded, r.config, Version, r.tracer, r.stderr, opts)
+			}
 			return mcpserver.Serve(cmd.Context(), r.loaded, r.config, Version, r.tracer, r.stderr, opts)
 		},
 	}
 	cmd.Flags().BoolVar(&readOnly, "read-only", false, "expose only read tools; skip every write command")
 	cmd.Flags().StringSliceVar(&services, "service", nil, "restrict tools to these service(s); repeatable or comma-separated (default: all)")
+	cmd.Flags().StringVar(&httpAddr, "http", "", "serve streamable-HTTP MCP on this addr (e.g. :9000); default empty = stdio")
 	return cmd
 }
 
