@@ -267,6 +267,35 @@ func TestValidateServices(t *testing.T) {
 	}
 }
 
+// TestValidateServicesAcceptsQualifiedSelector proves --service accepts a
+// qualified "<catalog>:<service>" selector, and that filtering on it (a
+// sole-definer catalog, so BuildServer's CanonicalNames loop visits only the
+// bare alias) still resolves to the right service's tools.
+func TestValidateServicesAcceptsQualifiedSelector(t *testing.T) {
+	dir := t.TempDir()
+	installPortableCatalog(t, dir, "mycat", "widget")
+
+	loaded, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if err := mcpserver.ValidateServices(loaded, []string{"mycat:widget"}); err != nil {
+		t.Errorf("a qualified selector for a loaded service should validate, got %v", err)
+	}
+
+	tracer := noop.NewTracerProvider().Tracer("test")
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil,
+		mcpserver.Options{Services: []string{"mycat:widget"}})
+	names := listToolNames(t, srv)
+	if !names["widget_status"] {
+		t.Errorf("--service mycat:widget should still register the sole-definer's widget tools; got %v", names)
+	}
+	if names["radarr_status"] {
+		t.Errorf("--service mycat:widget should exclude unrelated services; got %v", names)
+	}
+}
+
 // TestToolCallDispatch verifies that a tool call reaches the HTTP endpoint and
 // returns the JSON body as text content.
 func TestToolCallDispatch(t *testing.T) {
@@ -876,5 +905,61 @@ func TestToolNamesIndependentOfCLITree(t *testing.T) {
 		if strings.HasPrefix(name, "svc_") {
 			t.Errorf("tool %q leaked the CLI `svc` parent into its name", name)
 		}
+	}
+}
+
+// installPortableCatalog stages a dir of minimal portable manifests and
+// installs it as a named catalog under configDir, mirroring the catalog `add`
+// flow without going through the CLI.
+func installPortableCatalog(t *testing.T, configDir, cat string, services ...string) {
+	t.Helper()
+	files := map[string][]byte{}
+	for _, name := range services {
+		body := "name: " + name + "\n" +
+			"auth: { strategy: none }\n" +
+			"commands:\n" +
+			"  status: { method: GET, path: /status }\n"
+		files[name+".yaml"] = []byte(body)
+	}
+	meta := manifest.CatalogMeta{Name: cat, Source: "/some/dir", Type: "dir"}
+	if err := manifest.InstallCatalog(configDir, meta, files, false); err != nil {
+		t.Fatalf("InstallCatalog(%s): %v", cat, err)
+	}
+}
+
+// TestCollidingCatalogToolNamesSanitized proves the fix for a real collision:
+// two installed catalogs defining the same bare service name produce distinct,
+// sanitized MCP tool names (the qualified "<catalog>:<service>" selector with
+// ':' replaced by '-'), the ambiguous bare name produces no tool of its own, and
+// a non-colliding service's tool name is byte-identical to before the selector
+// mechanism existed (selector == svc.Name when there is no qualification).
+func TestCollidingCatalogToolNamesSanitized(t *testing.T) {
+	dir := t.TempDir()
+	installPortableCatalog(t, dir, "cat1", "foo")
+	installPortableCatalog(t, dir, "cat2", "foo")
+
+	loaded, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := loaded.Services["foo"]; ok {
+		t.Fatal("bare 'foo' must be ambiguous (absent from Services) with two definers")
+	}
+
+	tracer := noop.NewTracerProvider().Tracer("test")
+	srv := mcpserver.BuildServer(loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{})
+	names := listToolNames(t, srv)
+
+	for _, want := range []string{"cat1-foo_status", "cat2-foo_status"} {
+		if !names[want] {
+			t.Errorf("missing colliding-catalog MCP tool %q (got %v)", want, names)
+		}
+	}
+	if names["foo_status"] {
+		t.Error("the ambiguous bare 'foo' must not produce its own MCP tool")
+	}
+	// A non-colliding embedded service's tool name is unchanged.
+	if !names["radarr_list"] {
+		t.Errorf("expected unchanged tool name radarr_list for a non-colliding service; got %v", names)
 	}
 }

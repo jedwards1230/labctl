@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/jedwards1230/labctl/internal/command"
@@ -154,17 +155,58 @@ func (r *runner) newSvcCmd(loaded *manifest.Loaded, loadErr error) *cobra.Comman
 		},
 	}
 	if loaded != nil {
+		// Every selector — bare names and every installed-catalog's qualified
+		// "<catalog>:<service>" form — gets a runnable cobra subcommand, so both
+		// `labctl svc foo` and `labctl svc cat:foo` dispatch.
 		for _, name := range loaded.SortedServiceNames() {
-			svcCmd.AddCommand(r.newServiceCmd(loaded.Services[name]))
+			svcCmd.AddCommand(r.newServiceCmd(name, loaded.Services[name]))
+		}
+		// A bare name more than one installed catalog defines (with no local
+		// override) has no entry in loaded.Services — register a stub so
+		// `labctl svc <name>` and `labctl svc <name> <cmd>` both surface the
+		// "qualify it" diagnostic instead of "unknown service/command".
+		for _, name := range sortedKeys(loaded.Ambiguous) {
+			svcCmd.AddCommand(r.newAmbiguousServiceCmd(loaded, name))
 		}
 	}
 	return svcCmd
 }
 
-func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
+// newAmbiguousServiceCmd builds a stub `svc <name>` subcommand for a bare name
+// that more than one installed catalog defines. It accepts (and ignores) any
+// trailing args — so a subcommand invocation lands here too — and always
+// returns the ambiguity error from Loaded.Lookup.
+func (r *runner) newAmbiguousServiceCmd(loaded *manifest.Loaded, name string) *cobra.Command {
+	return &cobra.Command{
+		Use:                name,
+		Short:              "ambiguous: defined by multiple installed catalogs; qualify as <catalog>:" + name,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			r.curService = name
+			if len(args) > 0 {
+				r.curCommand = args[0]
+			}
+			_, err := loaded.Lookup(name)
+			return err
+		},
+	}
+}
+
+// sortedKeys returns the sorted keys of an ambiguity map (bare service name →
+// defining catalogs), for deterministic cobra registration order.
+func sortedKeys(m map[string][]string) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (r *runner) newServiceCmd(selector string, svc *manifest.Service) *cobra.Command {
 	cmds := command.FromManifest(svc)
 	sc := &cobra.Command{
-		Use:   svc.Name,
+		Use:   selector,
 		Short: svc.Description,
 		Long:  serviceHelp(svc, cmds),
 		// RunE is invoked when cobra cannot find a matching subcommand (e.g.
@@ -186,7 +228,7 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 			Short:              c.Help,
 			DisableFlagParsing: false,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return r.execNamed(svc, c, args)
+				return r.execNamed(selector, svc, c, args)
 			},
 		})
 	}
@@ -202,7 +244,7 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 			Short: "generic " + v + " passthrough",
 			Args:  cobra.ArbitraryArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return r.execVerb(svc, v, args)
+				return r.execVerb(selector, svc, v, args)
 			},
 		})
 	}
@@ -212,20 +254,20 @@ func (r *runner) newServiceCmd(svc *manifest.Service) *cobra.Command {
 			Short: "generic jsonrpc passthrough",
 			Args:  cobra.ArbitraryArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return r.execVerb(svc, "call", args)
+				return r.execVerb(selector, svc, "call", args)
 			},
 		})
 	}
 	return sc
 }
 
-func (r *runner) execNamed(svc *manifest.Service, c *command.Command, args []string) error {
-	r.curService, r.curCommand = svc.Name, c.ID
+func (r *runner) execNamed(selector string, svc *manifest.Service, c *command.Command, args []string) error {
+	r.curService, r.curCommand = selector, c.ID
 	return r.dispatch(svc, c, args)
 }
 
-func (r *runner) execVerb(svc *manifest.Service, verb string, args []string) error {
-	r.curService, r.curCommand = svc.Name, verb
+func (r *runner) execVerb(selector string, svc *manifest.Service, verb string, args []string) error {
+	r.curService, r.curCommand = selector, verb
 	c, err := command.Verb(svc.Transport, verb, args)
 	if err != nil {
 		return &usageError{err.Error()}

@@ -123,7 +123,10 @@ func TestCatalogAddNoManifests(t *testing.T) {
 }
 
 // TestCatalogAddCrossCatalogCollision: adding a second catalog that defines a
-// service already provided by an installed catalog is rejected up front.
+// service already provided by an installed catalog now SUCCEEDS — both catalogs
+// install, each addressable via its qualified "<catalog>:<service>" selector
+// (`labctl svc <catalog>:<service>`), while the bare name is ambiguous and
+// reported by `list`/`labctl svc <name>` rather than silently picked.
 func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("LABCTL_CONFIG_DIR", cfg)
@@ -138,11 +141,83 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != exitUsage {
-		t.Fatalf("add bcat exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != exitOK {
+		t.Fatalf("add bcat exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "bcat")); !os.IsNotExist(err) {
-		t.Error("the colliding second catalog must not be installed")
+	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "bcat")); err != nil {
+		t.Errorf("the second catalog should now install alongside the first: %v", err)
+	}
+
+	// `list` shows both qualified forms, never the bare ambiguous name.
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+		t.Fatalf("list exit = %d (stderr: %s)", code, errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("acat:widget")) || !bytes.Contains(out.Bytes(), []byte("bcat:widget")) {
+		t.Errorf("list output should show both qualified forms:\n%s", out.String())
+	}
+
+	// The bare name is ambiguous: both `labctl svc widget` (no subcommand) and
+	// `labctl svc widget list` (with one) must error with the qualify message.
+	for _, args := range [][]string{{"svc", "widget"}, {"svc", "widget", "list"}} {
+		out.Reset()
+		errb.Reset()
+		if code := Run(args, &out, &errb); code != exitUsage {
+			t.Errorf("Run(%v) exit = %d, want %d (usage) (stderr: %s)", args, code, exitUsage, errb.String())
+		}
+		if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
+			t.Errorf("Run(%v) stderr = %q, want it to list both qualified forms", args, errb.String())
+		}
+	}
+
+	// The qualified form dispatches normally (profile binding is by the
+	// underlying manifest's service name, so it applies to either catalog's copy).
+	bindBaseURL(t, cfg, "widget", "http://example.test")
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"svc", "acat:widget", "list", "--dry-run"}, &out, &errb); code != exitOK {
+		t.Fatalf("svc acat:widget list exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
+	}
+}
+
+// TestLintDoctorQualifiedAndAmbiguousSelector: `lint`/`doctor` resolve a
+// qualified "<catalog>:<service>" selector (works even though the bare name is
+// ambiguous), and report the ambiguity error (exit 2, listing both qualified
+// forms) for the bare name instead of a misleading "unknown service".
+func TestLintDoctorQualifiedAndAmbiguousSelector(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("LABCTL_CONFIG_DIR", cfg)
+	srcA := filepath.Join(t.TempDir(), "acat")
+	writeSourceManifest(t, srcA, "widget.yaml", portableWidget)
+	srcB := filepath.Join(t.TempDir(), "bcat")
+	writeSourceManifest(t, srcB, "widget.yaml", portableWidget)
+	var out, errb bytes.Buffer
+	for _, src := range []string{srcA, srcB} {
+		out.Reset()
+		errb.Reset()
+		if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+			t.Fatalf("add %s exit = %d (stderr: %s)", src, code, errb.String())
+		}
+	}
+
+	for _, cmd := range []string{"lint", "doctor"} {
+		t.Run(cmd, func(t *testing.T) {
+			out.Reset()
+			errb.Reset()
+			if code := Run([]string{cmd, "acat:widget"}, &out, &errb); code != exitOK {
+				t.Fatalf("%s acat:widget exit = %d, want %d (stderr: %s)", cmd, code, exitOK, errb.String())
+			}
+
+			out.Reset()
+			errb.Reset()
+			if code := Run([]string{cmd, "widget"}, &out, &errb); code != exitUsage {
+				t.Fatalf("%s widget exit = %d, want %d (usage) (stderr: %s)", cmd, code, exitUsage, errb.String())
+			}
+			if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
+				t.Errorf("%s widget stderr = %q, want it to list both qualified forms", cmd, errb.String())
+			}
+		})
 	}
 }
 

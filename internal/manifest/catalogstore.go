@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 // CatalogMetaFile is the per-catalog metadata file labctl writes into each
@@ -132,48 +130,6 @@ func ReadCatalogMeta(configDir, name string) (CatalogMeta, bool, error) {
 		meta.Name = name
 	}
 	return meta, true, nil
-}
-
-// InstalledCatalogServiceNames maps service name → catalog name for every service
-// defined by an installed catalog, EXCLUDING the named catalog (pass "" to
-// exclude none). Used to pre-detect a cross-catalog service-name collision before
-// installing. A manifest that fails to parse is skipped — the install-time
-// validator is the authority; this is a best-effort pre-check.
-func InstalledCatalogServiceNames(configDir, exclude string) (map[string]string, error) {
-	cats, err := InstalledCatalogs(configDir)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string]string{}
-	for _, cat := range cats {
-		if cat.Name == exclude {
-			continue
-		}
-		catDir := filepath.Join(CatalogsDir(configDir), cat.Name)
-		entries, err := os.ReadDir(catDir)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", catDir, err)
-		}
-		for _, e := range entries {
-			if e.IsDir() || !isYAML(e.Name()) {
-				continue
-			}
-			b, err := os.ReadFile(filepath.Join(catDir, e.Name()))
-			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", filepath.Join(catDir, e.Name()), err)
-			}
-			var svc Service
-			if err := yaml.Unmarshal(b, &svc); err != nil {
-				continue // best-effort; the validator is the authority
-			}
-			name := svc.Name
-			if name == "" {
-				name = strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".yml")
-			}
-			out[name] = cat.Name
-		}
-	}
-	return out, nil
 }
 
 // InstallCatalog atomically installs a catalog of portable manifests under

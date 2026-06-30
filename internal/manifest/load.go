@@ -43,22 +43,82 @@ func (o Origin) IsCatalog() bool { return strings.HasPrefix(string(o), originCat
 func (o Origin) CatalogName() string { return strings.TrimPrefix(string(o), originCatalogPrefix) }
 
 // Loaded is the merged result of a config dir: the global config plus every
-// service manifest, keyed by selector name. Services come from the embedded
-// catalog and the local services/ dir, with local overriding embedded by name.
+// service manifest, keyed by ADDRESSABLE SELECTOR. A selector is either a bare
+// service name (an embedded/local service, or an installed-catalog service with
+// exactly one definer) or a qualified "<catalog>:<service>" name (every
+// installed-catalog service, always — even a sole definer also gets the
+// qualified form). Services come from the embedded catalog, installed catalogs,
+// and the local services/ dir, with local overriding installed overriding
+// embedded by name.
 type Loaded struct {
-	Config   Config
+	Config Config
+	// Services is keyed by selector: bare names for embedded/local services and
+	// any installed-catalog service with exactly one definer, plus a qualified
+	// "<catalog>:<service>" entry for EVERY installed-catalog service. A bare
+	// name that more than one installed catalog defines (and no local override
+	// claims) is absent here — see Ambiguous.
 	Services map[string]*Service
-	Origins  map[string]Origin // service name → where it came from
-	Dir      string
-	Profile  *Profile // optional per-user profile.yaml (nil when absent)
+	Origins  map[string]Origin // selector → where it came from
+	// Ambiguous maps a bare service name to the sorted list of installed-catalog
+	// names that define it, when more than one does and no local override
+	// resolves it. The bare name does NOT appear in Services or Origins in this
+	// case; only the qualified "<catalog>:<service>" selectors do. Looking up the
+	// bare name is a hard error (Lookup) listing the qualified forms — labctl
+	// never silently picks one.
+	Ambiguous map[string][]string
+	Dir       string
+	Profile   *Profile // optional per-user profile.yaml (nil when absent)
 }
 
-// OriginOf reports where a loaded service came from (empty for an unknown name).
+// OriginOf reports where a loaded selector came from (empty for an unknown name).
 func (l *Loaded) OriginOf(name string) Origin {
 	if l.Origins == nil {
 		return ""
 	}
 	return l.Origins[name]
+}
+
+// Lookup resolves a selector — a bare service name or a qualified
+// "<catalog>:<service>" name — to its Service. An ambiguous bare name (defined
+// by more than one installed catalog, with no local override) is a *ConfigError
+// (exit 2) listing the qualified forms to disambiguate with; labctl never
+// silently picks one. An unrecognized selector is also a *ConfigError (exit 2).
+func (l *Loaded) Lookup(name string) (*Service, error) {
+	if cats, ok := l.Ambiguous[name]; ok {
+		forms := make([]string, len(cats))
+		for i, cat := range cats {
+			forms[i] = cat + ":" + name
+		}
+		return nil, &ConfigError{Err: fmt.Errorf(
+			"service %q is defined by %d installed catalogs; qualify it as one of: %s",
+			name, len(cats), strings.Join(forms, ", "),
+		)}
+	}
+	if svc, ok := l.Services[name]; ok {
+		return svc, nil
+	}
+	return nil, &ConfigError{Err: fmt.Errorf("unknown service %q", name)}
+}
+
+// CanonicalNames returns a sorted, deduplicated selector list with one entry per
+// DISTINCT service. A qualified "<catalog>:<service>" selector is dropped when it
+// is the redundant alias of a sole-definer catalog service — i.e. its bare form
+// also exists in Services and points at the SAME *Service. Two installed
+// catalogs genuinely colliding on a name keep both qualified selectors (there is
+// no bare form to alias). Used by `list`, the MCP server, and lint/doctor's
+// all-services path so a service shows once.
+func (l *Loaded) CanonicalNames() []string {
+	names := make([]string, 0, len(l.Services))
+	for sel, svc := range l.Services {
+		if _, bareName, ok := strings.Cut(sel, ":"); ok {
+			if bareSvc, present := l.Services[bareName]; present && bareSvc == svc {
+				continue // redundant qualified alias of the sole-definer bare form
+			}
+		}
+		names = append(names, sel)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ConfigDir resolves the labctl config directory, honoring (in order):
@@ -84,7 +144,7 @@ func Load(dir string) (*Loaded, error) {
 	if dir == "" {
 		dir = ConfigDir()
 	}
-	l := &Loaded{Dir: dir, Services: map[string]*Service{}, Origins: map[string]Origin{}}
+	l := &Loaded{Dir: dir, Services: map[string]*Service{}, Origins: map[string]Origin{}, Ambiguous: map[string][]string{}}
 
 	// Global config (optional). The config model is fully closed, so decode
 	// strictly (KnownFields) — a typo'd top-level key is a config error (exit 2)
@@ -174,14 +234,19 @@ func Load(dir string) (*Loaded, error) {
 		}
 		finalizeService(svc, l.Config, profile)
 		prior := l.Origins[svc.Name]
+		_, wasAmbiguous := l.Ambiguous[svc.Name]
 		switch {
 		case prior == OriginLocal || prior == OriginOverride:
 			return nil, fmt.Errorf("duplicate service name %q in %s", svc.Name, path)
-		case prior == OriginEmbedded || prior.IsCatalog():
-			l.Origins[svc.Name] = OriginOverride // local shadows the embedded one or an installed catalog
+		case prior == OriginEmbedded || prior.IsCatalog() || wasAmbiguous:
+			// Local shadows the embedded one, a (sole-definer) installed catalog,
+			// or an otherwise-ambiguous bare name claimed by multiple installed
+			// catalogs — a local file always wins and resolves the ambiguity.
+			l.Origins[svc.Name] = OriginOverride
 		default:
 			l.Origins[svc.Name] = OriginLocal
 		}
+		delete(l.Ambiguous, svc.Name) // a local file always resolves any prior ambiguity
 		l.Services[svc.Name] = svc
 	}
 	// A binding for a service that never loaded is most likely a typo or a stale
@@ -194,11 +259,17 @@ func Load(dir string) (*Loaded, error) {
 // loadInstalledCatalogs merges every manifest under <dir>/catalogs/<cat>/ into l,
 // after the embedded floor and before the local services/ dir. Catalog subdirs
 // are visited in sorted name order and each catalog's manifests in sorted file
-// order, so the load is deterministic. An installed catalog SHADOWS the embedded
-// service of the same name (origin → catalog:<cat>); two installed catalogs
-// defining one service is a hard error (fail-closed). A missing catalogs/ dir is
-// not an error; a malformed installed manifest fails Load (consistent with
-// services/).
+// order, so the load is deterministic.
+//
+// Every installed-catalog service is ALWAYS addressable via its qualified
+// "<catalog>:<service>" selector — registered unconditionally, regardless of any
+// bare-name collision. The bare name additionally resolves when exactly one
+// installed catalog defines it (shadowing the embedded floor, origin →
+// catalog:<cat>); when MORE than one does, the bare name is left unresolved
+// (recorded in l.Ambiguous, any embedded floor entry of that name removed) —
+// looking it up is a hard error, never a silent pick. A duplicate service name
+// within ONE catalog is still a hard error. A missing catalogs/ dir is not an
+// error; a malformed installed manifest fails Load (consistent with services/).
 func loadInstalledCatalogs(l *Loaded, profile *Profile) error {
 	catalogsDir := CatalogsDir(l.Dir)
 	entries, err := os.ReadDir(catalogsDir)
@@ -211,14 +282,20 @@ func loadInstalledCatalogs(l *Loaded, profile *Profile) error {
 	cats := make([]string, 0, len(entries))
 	for _, e := range entries {
 		// Skip non-dirs and dot-prefixed dirs (a crashed `catalog add` can leave a
-		// .tmp-* staging dir behind; loading it as a phantom catalog would, worse,
-		// trip the cross-catalog collision check and brick every load).
+		// .tmp-* staging dir behind; loading it as a phantom catalog would
+		// otherwise pollute bare-name resolution with a stale definer).
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		cats = append(cats, e.Name())
 	}
 	sort.Strings(cats)
+
+	// bareDefiners tracks, for every bare service name seen across installed
+	// catalogs, the (sorted, by construction — cats is visited in sorted order)
+	// list of catalogs that define it.
+	bareDefiners := map[string][]string{}
+
 	for _, cat := range cats {
 		catDir := filepath.Join(catalogsDir, cat)
 		files, err := os.ReadDir(catDir)
@@ -233,6 +310,7 @@ func loadInstalledCatalogs(l *Loaded, profile *Profile) error {
 			names = append(names, f.Name())
 		}
 		sort.Strings(names)
+		seenInCat := map[string]bool{}
 		for _, fname := range names {
 			path := filepath.Join(catDir, fname)
 			b, err := os.ReadFile(path)
@@ -247,17 +325,34 @@ func loadInstalledCatalogs(l *Loaded, profile *Profile) error {
 				svc.Name = strings.TrimSuffix(strings.TrimSuffix(fname, ".yaml"), ".yml")
 			}
 			finalizeService(svc, l.Config, profile)
-			// Collision policy: a name already claimed by an installed catalog is a
-			// hard error; the embedded floor (or unset) is shadowed, which is allowed.
-			if prior := l.Origins[svc.Name]; prior.IsCatalog() {
-				if prior.CatalogName() == cat {
-					return fmt.Errorf("service %q defined more than once in catalog %q", svc.Name, cat)
-				}
-				return fmt.Errorf("service %q is defined by two installed catalogs (%q and %q); remove one", svc.Name, prior.CatalogName(), cat)
+
+			// A duplicate service name WITHIN one catalog is still a real error —
+			// only cross-catalog name reuse is allowed (disambiguated by selector).
+			if seenInCat[svc.Name] {
+				return fmt.Errorf("service %q defined more than once in catalog %q", svc.Name, cat)
 			}
-			l.Services[svc.Name] = svc
-			l.Origins[svc.Name] = catalogOrigin(cat)
+			seenInCat[svc.Name] = true
+
+			selector := cat + ":" + svc.Name
+			l.Services[selector] = svc
+			l.Origins[selector] = catalogOrigin(cat)
+			bareDefiners[svc.Name] = append(bareDefiners[svc.Name], cat)
 		}
+	}
+
+	for name, definers := range bareDefiners {
+		if len(definers) == 1 {
+			cat := definers[0]
+			l.Services[name] = l.Services[cat+":"+name] // shadows the embedded floor (or an unset bare name)
+			l.Origins[name] = catalogOrigin(cat)
+			continue
+		}
+		// More than one installed catalog defines this name: the bare selector
+		// resolves to nothing (never silently pick one) — drop any embedded floor
+		// entry and record the ambiguity for Lookup/CLI to report.
+		delete(l.Services, name)
+		delete(l.Origins, name)
+		l.Ambiguous[name] = definers // already sorted: definers append in sorted cat order
 	}
 	return nil
 }

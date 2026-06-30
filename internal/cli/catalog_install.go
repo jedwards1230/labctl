@@ -282,10 +282,13 @@ func (r *runner) catalogInstalled() error {
 }
 
 // collectAndValidate enumerates top-level *.yaml/*.yml in fetchDir, validates each
-// as a portable manifest (fail-closed), rejects a duplicate service name within
-// the source, and pre-checks for a service-name collision against OTHER installed
-// catalogs. It returns the files keyed by base filename, ready for InstallCatalog.
-func (r *runner) collectAndValidate(fetchDir, source, name string) (map[string][]byte, error) {
+// as a portable manifest (fail-closed), and rejects a duplicate service name
+// within the source. It returns the files keyed by base filename, ready for
+// InstallCatalog. A service name already defined by ANOTHER installed catalog is
+// allowed — both stay addressable via their qualified "<catalog>:<service>"
+// selector; the bare name becomes ambiguous (see manifest.Loaded.Ambiguous) and
+// is resolved at load/lookup time, not blocked here.
+func (r *runner) collectAndValidate(fetchDir, source, _ string) (map[string][]byte, error) {
 	entries, err := os.ReadDir(fetchDir)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", source, err)
@@ -316,16 +319,6 @@ func (r *runner) collectAndValidate(fetchDir, source, name string) (map[string][
 	}
 	if len(files) == 0 {
 		return nil, &usageError{fmt.Sprintf("no manifests (*.yaml) found in %s", source)}
-	}
-	// Cross-catalog collision pre-check (exclude self so a re-add/update is fine).
-	existing, err := manifest.InstalledCatalogServiceNames(r.configDir(), name)
-	if err != nil {
-		return nil, err
-	}
-	for svc := range svcToFile {
-		if cat, ok := existing[svc]; ok {
-			return nil, &usageError{fmt.Sprintf("service %q is already defined by installed catalog %q; remove it or rename", svc, cat)}
-		}
 	}
 	return files, nil
 }
