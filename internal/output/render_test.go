@@ -1,6 +1,8 @@
 package output
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +16,15 @@ func render(t *testing.T, body string, out manifest.Output, opts Options) string
 		t.Fatalf("Render error: %v", err)
 	}
 	return b.String()
+}
+
+func filtered(t *testing.T, body string, out manifest.Output, opts Options) any {
+	t.Helper()
+	v, err := Filtered([]byte(body), out, opts)
+	if err != nil {
+		t.Fatalf("Filtered error: %v", err)
+	}
+	return v
 }
 
 func TestRenderDefaultFilter(t *testing.T) {
@@ -168,5 +179,139 @@ func TestRenderXMLRepeatedChildren(t *testing.T) {
 	})
 	if strings.TrimSpace(got) != "3" {
 		t.Fatalf("repeated children length = %q, want 3", got)
+	}
+}
+
+// TestFilteredMatchesRenderSingleResult is the explicit "Filtered matches the
+// text path" guarantee the MCP server's StructuredContent.result relies on:
+// for every filter that yields exactly one jq result, Filtered's value
+// marshals to the same JSON as Render's text output, for the SAME body/out/
+// opts inputs used by the Render tests above.
+func TestFilteredMatchesRenderSingleResult(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		out  manifest.Output
+		opts Options
+	}{
+		{"default filter", `{"a":1,"b":2}`, manifest.Output{DefaultFilter: ".a"}, Options{}},
+		{"filter override", `{"a":1,"b":2}`, manifest.Output{DefaultFilter: ".a"}, Options{Filter: ".b"}},
+		{"map projection", `[{"id":1,"x":9},{"id":2,"x":8}]`, manifest.Output{DefaultFilter: "map(.id)"}, Options{}},
+		{"scalar mode string", `{"version":"6.0.4"}`, manifest.Output{DefaultFilter: ".version", Mode: "scalar"}, Options{}},
+		{"json mode whole object", `{"s":"hello"}`, manifest.Output{DefaultFilter: ".s"}, Options{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotVal := filtered(t, tc.body, tc.out, tc.opts)
+			gotJSON, err := json.Marshal(gotVal)
+			if err != nil {
+				t.Fatalf("marshal Filtered value: %v", err)
+			}
+
+			wantText := strings.TrimRight(render(t, tc.body, tc.out, tc.opts), "\n")
+			var wantVal any
+			if jsonErr := json.Unmarshal([]byte(wantText), &wantVal); jsonErr != nil {
+				// scalar mode on a bare string writes it unquoted — not valid JSON
+				// on its own, so treat the literal text as the expected string value.
+				wantVal = wantText
+			}
+			wantJSON, err := json.Marshal(wantVal)
+			if err != nil {
+				t.Fatalf("marshal Render-derived value: %v", err)
+			}
+			if string(gotJSON) != string(wantJSON) {
+				t.Errorf("Filtered = %s, want (derived from Render text) %s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// TestFilteredRaw proves --raw returns the decoded JSON body (no jq, no
+// double-encoding) as the structured Go value, matching Render's raw
+// passthrough semantics but as a value instead of bytes.
+func TestFilteredRaw(t *testing.T) {
+	got := filtered(t, `{"a":  1}`, manifest.Output{DefaultFilter: ".a"}, Options{Raw: true})
+	want := map[string]any{"a": float64(1)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+// TestFilteredRawNonJSONFallsBackToString proves a non-JSON raw body passes
+// through as the trimmed raw string rather than erroring — no double-encoding,
+// matching Render's raw passthrough of arbitrary bytes.
+func TestFilteredRawNonJSONFallsBackToString(t *testing.T) {
+	got := filtered(t, "not json\n", manifest.Output{}, Options{Raw: true})
+	if got != "not json" {
+		t.Fatalf("got %#v, want literal string %q", got, "not json")
+	}
+}
+
+// TestFilteredModeRawViaOutputMode proves out.Mode=="raw" (not just the --raw
+// flag) also takes the raw path, mirroring Render's mode resolution.
+func TestFilteredModeRawViaOutputMode(t *testing.T) {
+	got := filtered(t, `{"a":1}`, manifest.Output{Mode: "raw"}, Options{})
+	want := map[string]any{"a": float64(1)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+// TestFilteredMultipleResultsCollectIntoSlice proves a filter yielding more
+// than one jq result (e.g. `.[]`) collects into a Go slice — Render instead
+// writes each result as a separate JSON value to the text stream, but
+// Filtered must return ONE value, per the StructuredContent.result contract.
+func TestFilteredMultipleResultsCollectIntoSlice(t *testing.T) {
+	got := filtered(t, `[1,2,3]`, manifest.Output{DefaultFilter: ".[]"}, Options{})
+	want := []any{float64(1), float64(2), float64(3)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v, want %#v", got, want)
+	}
+}
+
+// TestFilteredZeroResultsIsNil proves a filter yielding zero results (e.g. an
+// empty() pipeline) returns a nil value rather than an empty slice.
+func TestFilteredZeroResultsIsNil(t *testing.T) {
+	got := filtered(t, `{}`, manifest.Output{DefaultFilter: "empty"}, Options{})
+	if got != nil {
+		t.Fatalf("got %#v, want nil", got)
+	}
+}
+
+// TestFilteredBadFilter proves an invalid jq filter is a parse error, just
+// like Render.
+func TestFilteredBadFilter(t *testing.T) {
+	_, err := Filtered([]byte(`{}`), manifest.Output{DefaultFilter: ".["}, Options{})
+	if err == nil {
+		t.Fatal("expected parse error on bad filter")
+	}
+}
+
+// TestFilteredUndecodableBodyScalarFallback proves an undecodable body in
+// scalar mode falls back to the trimmed raw string, matching Render's scalar
+// fallback (rather than erroring).
+func TestFilteredUndecodableBodyScalarFallback(t *testing.T) {
+	got := filtered(t, "plain text\n", manifest.Output{DefaultFilter: "."}, Options{Mode: "scalar"})
+	if got != "plain text" {
+		t.Fatalf("got %#v, want %q", got, "plain text")
+	}
+}
+
+// TestFilteredUndecodableBodyNonScalarErrors proves an undecodable body in a
+// non-scalar mode is an error, matching Render.
+func TestFilteredUndecodableBodyNonScalarErrors(t *testing.T) {
+	_, err := Filtered([]byte("plain text"), manifest.Output{DefaultFilter: "."}, Options{})
+	if err == nil {
+		t.Fatal("expected decode error for undecodable body in non-scalar mode")
+	}
+}
+
+// TestFilteredXML proves the XML decode path (DecodeXML) feeds Filtered the
+// same way it feeds Render.
+func TestFilteredXML(t *testing.T) {
+	xmlBody := `<root status_code="200"><hostname>myhost</hostname></root>`
+	got := filtered(t, xmlBody, manifest.Output{DefaultFilter: ".root.hostname"}, Options{ResponseCodec: "xml"})
+	if got != "myhost" {
+		t.Fatalf("got %#v, want %q", got, "myhost")
 	}
 }

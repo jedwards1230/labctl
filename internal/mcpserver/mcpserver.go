@@ -22,8 +22,17 @@ import (
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/engine"
 	"github.com/jedwards1230/labctl/internal/manifest"
+	"github.com/jedwards1230/labctl/internal/mcpserver/views"
 	"github.com/jedwards1230/labctl/internal/output"
 )
+
+// resultResourceURI is the URI of the single universal result View resource,
+// registered once on the server (not per service/command) and linked from
+// every read tool's _meta.ui.resourceUri — the MCP Apps convention. A host
+// that understands MCP Apps renders this resource and feeds it the tool's
+// CallToolResult (StructuredContent + the original input) via the ext-apps
+// bridge; a host that doesn't falls back to the tool's TextContent.
+const resultResourceURI = "ui://labctl/result"
 
 // argRe finds {arg.N} and {argN} placeholders in a template string.
 var argRe = regexp.MustCompile(`\{arg\.?(\d+)\}`)
@@ -98,6 +107,43 @@ func buildSchema(c *command.Command) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{},"required":[]}`)
 	}
 	return b
+}
+
+// registerResultResource adds the single ui://labctl/result resource: the
+// built-in universal table/record/tree View, embedded once and served to
+// every read tool that links to it via _meta.ui.resourceUri. The HTML is read
+// once here (server-build time), per the LABCTL_VIEWS_DIR dev-loop contract
+// (mirrors LABCTL_CONFIG_DIR) — a server rebuilt with that env var set always
+// picks up the latest build on disk without a Go rebuild.
+func registerResultResource(srv *mcp.Server) {
+	html := string(views.ResultHTML())
+	srv.AddResource(
+		&mcp.Resource{
+			Name:        "labctl result",
+			Title:       "labctl Result View",
+			Description: "Universal adaptive table/record/tree View for labctl read-tool results.",
+			URI:         resultResourceURI,
+			MIMEType:    views.ResultMIMEType,
+		},
+		func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			return &mcp.ReadResourceResult{
+				Contents: []*mcp.ResourceContents{
+					{URI: req.Params.URI, MIMEType: views.ResultMIMEType, Text: html},
+				},
+			}, nil
+		},
+	)
+}
+
+// uiMeta returns the MCP Apps _meta.ui block linking a tool to the universal
+// result View, or nil for a write tool. Per the Phase 1+2 contract only READ
+// tools link to the View — the write-confirmation View is a separate later
+// PR.
+func uiMeta(write bool) mcp.Meta {
+	if write {
+		return nil
+	}
+	return mcp.Meta{"ui": map[string]any{"resourceUri": resultResourceURI}}
 }
 
 // toolName returns the MCP tool name for a tool-name prefix + command pair. The
@@ -269,6 +315,7 @@ func BuildServer(
 		version = "dev"
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "labctl", Version: version}, nil)
+	registerResultResource(srv)
 
 	// registered tracks every tool name added so far, so a generic verb never
 	// double-registers (it also lets verb registration defer to a same-named
@@ -312,13 +359,18 @@ func BuildServer(
 			capturedSvc := svc
 			capturedCmd := c
 
+			tool := &mcp.Tool{
+				Name:        capturedName,
+				Description: toolDesc(c),
+				InputSchema: buildSchema(c),
+				Annotations: buildAnnotations(svc.Name, id, c),
+			}
+			if m := uiMeta(c.Write); m != nil {
+				tool.Meta = m
+			}
+
 			srv.AddTool(
-				&mcp.Tool{
-					Name:        capturedName,
-					Description: toolDesc(c),
-					InputSchema: buildSchema(c),
-					Annotations: buildAnnotations(svc.Name, id, c),
-				},
+				tool,
 				func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 					return handleCall(ctx, req, capturedSvc, capturedCmd, cfg, tracer, stderr)
 				},
@@ -380,13 +432,18 @@ func registerVerbTools(
 
 		capturedSvc := svc
 		capturedVerb := verb
+		tool := &mcp.Tool{
+			Name:        name,
+			Description: verbDesc(svc.Name, verb),
+			InputSchema: verbSchema(verb),
+			Annotations: buildAnnotations(svc.Name, verb, stub),
+		}
+		if m := uiMeta(write); m != nil {
+			tool.Meta = m
+		}
+
 		srv.AddTool(
-			&mcp.Tool{
-				Name:        name,
-				Description: verbDesc(svc.Name, verb),
-				InputSchema: verbSchema(verb),
-				Annotations: buildAnnotations(svc.Name, verb, stub),
-			},
+			tool,
 			func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return handleVerb(ctx, req, capturedSvc, capturedVerb, cfg, tracer, stderr)
 			},
@@ -559,20 +616,97 @@ func executeAndRender(
 		return textResult(res.DryRunMsg)
 	}
 
-	var sb strings.Builder
-	if renderErr := output.Render(res.Body, res.Output, output.Options{
+	renderOpts := output.Options{
 		Filter:        filter,
 		Raw:           rawFlag,
 		DefaultMode:   cfg.Defaults.Output,
 		ResponseCodec: res.ResponseCodec,
-	}, &sb); renderErr != nil {
+	}
+
+	var sb strings.Builder
+	if renderErr := output.Render(res.Body, res.Output, renderOpts, &sb); renderErr != nil {
 		span.RecordError(renderErr)
 		span.SetStatus(codes.Error, renderErr.Error())
 		return errorResult(renderErr.Error())
 	}
 
+	result := textResult(sb.String())
+
+	// StructuredContent is additive (the text above is unchanged, always the
+	// fallback) and READ-tool only: a write tool's result stays text-only.
+	if !c.Write {
+		structured, structErr := buildStructured(svc, c, res.Body, res.Output, renderOpts)
+		if structErr != nil {
+			// output.Render already succeeded against the SAME body/opts, so this
+			// should not happen in practice; degrade to text-only rather than
+			// failing an otherwise-successful call over the additive field.
+			_, _ = fmt.Fprintf(stderr, "mcp: structured content for %s_%s: %v\n", svc.Name, c.ID, structErr)
+		} else {
+			result.StructuredContent = structured
+		}
+	}
+
 	span.SetStatus(codes.Ok, "")
-	return textResult(sb.String())
+	return result
+}
+
+// structuredResult is the OBJECT-ROOT StructuredContent wrapper for a
+// READ-tool result: { "result": <filtered value>, "labctl": {...} }. An
+// object root (rather than a bare array/scalar) is required because some MCP
+// Apps hosts only accept an object as structuredContent.
+type structuredResult struct {
+	Result any              `json:"result"`
+	Labctl structuredLabctl `json:"labctl"`
+}
+
+// structuredLabctl is the labctl-specific metadata alongside the filtered
+// result: which service/command produced it, a human title, and the optional
+// manifest ui: hints (nil when the command/manifest declares none).
+type structuredLabctl struct {
+	Service string `json:"service"`
+	Command string `json:"command"`
+	Title   string `json:"title"`
+	UI      any    `json:"ui"`
+}
+
+// buildStructured is the structured-content builder executeAndRender invokes.
+// It is an overridable package variable (rather than a direct call to
+// buildStructuredContent) ONLY so a test can force the defensive
+// degrade-to-text-only branch: because buildStructuredContent and output.Render
+// share the same decode+jq machinery (output.Filtered mirrors output.Render),
+// in production they succeed or fail together, so that branch is otherwise
+// unreachable. Production behaviour is unchanged — the default is the real
+// builder.
+var buildStructured = buildStructuredContent
+
+// buildStructuredContent computes the StructuredContent wrapper for a
+// READ-tool result. result is the SAME value the text rendering is derived
+// from (output.Filtered mirrors output.Render's decode+jq path exactly).
+func buildStructuredContent(svc *manifest.Service, c *command.Command, body []byte, out manifest.Output, opts output.Options) (*structuredResult, error) {
+	val, err := output.Filtered(body, out, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &structuredResult{
+		Result: val,
+		Labctl: structuredLabctl{
+			Service: svc.Name,
+			Command: c.ID,
+			Title:   toolTitle(svc.Name, c.ID, c.Help),
+			UI:      uiHints(c.UI),
+		},
+	}, nil
+}
+
+// uiHints converts a manifest ui: block into the value that goes into
+// structuredContent.labctl.ui: nil when the command declares no hints (the
+// zero value — including every generic-verb tool, which has no manifest
+// command at all), otherwise the hints object itself.
+func uiHints(ui manifest.UI) any {
+	if ui.IsZero() {
+		return nil
+	}
+	return ui
 }
 
 // verbDesc builds a clear, self-documenting description for a generic-verb tool.

@@ -27,6 +27,7 @@ type Command struct {
 	Pagination manifest.Pagination
 	Output     manifest.Output
 	MCPIgnore  bool
+	UI         manifest.UI // MCP Apps result-View hints (Phase 2); zero value = no hints
 	Steps      []manifest.Step
 	Write      bool // non-GET / mutating jsonrpc — informational only (binary gates nothing)
 }
@@ -50,6 +51,7 @@ func FromManifest(svc *manifest.Service) map[string]*Command {
 			Pagination: orDefault(c.Pagination, svc.Pagination),
 			Output:     resolveOutput(c.Output, svc.Output),
 			MCPIgnore:  c.MCPIgnore,
+			UI:         c.UI,
 			Steps:      c.Steps,
 			Write:      isWrite(svc.Transport, c.Method),
 		}

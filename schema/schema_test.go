@@ -152,6 +152,18 @@ func TestKnownInvalidManifestsFailSchema(t *testing.T) {
 			name: "endpoint base_url forbidden",
 			yaml: "name: x\nendpoints:\n  alt:\n    base_url: https://example.test\n",
 		},
+		{
+			name: "ui.view bad enum",
+			yaml: "name: x\ncommands:\n  list:\n    method: GET\n    path: /list\n    ui:\n      view: chart\n",
+		},
+		{
+			name: "ui.sort.dir bad enum",
+			yaml: "name: x\ncommands:\n  list:\n    method: GET\n    path: /list\n    ui:\n      sort:\n        dir: sideways\n",
+		},
+		{
+			name: "ui unknown key",
+			yaml: "name: x\ncommands:\n  list:\n    method: GET\n    path: /list\n    ui:\n      bogus: true\n",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -296,6 +308,19 @@ func TestSchemaAndValidateAgree(t *testing.T) {
 		{
 			name:      "endpoint base_url present (both reject)",
 			yaml:      "name: x\nendpoints:\n  alt:\n    base_url: https://example.test\n",
+			wantValid: false,
+		},
+		// ui: hint block (Phase 2): clean block accepted, bad view enum rejected.
+		{
+			name: "clean ui block (both accept)",
+			yaml: "name: x\ncommands:\n  list:\n    method: GET\n    path: /list\n" +
+				"    ui:\n      view: table\n      columns: [id, name]\n      primary: name\n" +
+				"      sort:\n        by: name\n        dir: asc\n      drilldown: get\n",
+			wantValid: true,
+		},
+		{
+			name:      "ui.view bad enum (both reject)",
+			yaml:      "name: x\ncommands:\n  list:\n    method: GET\n    path: /list\n    ui:\n      view: chart\n",
 			wantValid: false,
 		},
 	}

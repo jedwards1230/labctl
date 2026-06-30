@@ -144,6 +144,29 @@ a directory or a git repo:
   reference catalog both this action and `internal/manifest/example_catalog_test.go`
   exercise in CI, with its own authoring/publishing README.
 
+MCP Apps result View, Phase 1+2 (done, read tools only): every read tool
+(`!Write`, including the generic `<svc>_get` verb) carries
+`_meta.ui.resourceUri = "ui://labctl/result"`, an MCP Apps link to one
+universal table/record/tree HTML View registered ONCE on the server
+(`internal/mcpserver.BuildServer`) — zero per-service Go. The View itself is a
+single built HTML file (`internal/mcpserver/views/result.html`, built from the
+separate `views/` TS/Vite project and committed so plain `go build` needs no
+npm) `//go:embed`'d via `internal/mcpserver/views`, with `LABCTL_VIEWS_DIR`
+overriding it from disk for the dev loop (mirrors `LABCTL_CONFIG_DIR`). A read
+tool's `executeAndRender` populates `CallToolResult.StructuredContent`
+ADDITIVELY (the existing `TextContent` is unchanged — the fallback for
+non-Apps hosts and the headless/ContextForge agent path) with an object-root
+wrapper: `{"result": <jq-filtered value>, "labctl": {"service", "command",
+"title", "ui"}}`; `result` is computed by `output.Filtered`, which mirrors
+`output.Render`'s decode+jq path exactly so the structured value always
+matches the text. Write tools and dry-run never get the `_meta.ui` link or
+StructuredContent. A command can shape its own rendering with an optional
+`ui:` hint block (`manifest.UI`, sibling of `output:`) — `view`
+(table|record|tree), `columns`, `primary`, `badges`, `sort`, `drilldown` — DATA
+only (no HTML/URLs/secrets), so it stays portable and never trips
+`validateNoInManifestBinding`; absent, the View auto-detects by result shape.
+A write-confirmation View is a separate, later PR.
+
 ## Conventions
 
 - stdout = data, stderr = diagnostics, real exit codes (0 ok, 2 usage, 3 auth,

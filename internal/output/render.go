@@ -80,6 +80,77 @@ func Render(body []byte, out manifest.Output, opts Options, w io.Writer) error {
 	return nil
 }
 
+// Filtered mirrors Render through decode + gojq filtering, but returns the
+// filtered value as Go any instead of writing text — the same machinery (no
+// reimplementation), reused by the MCP server to populate
+// CallToolResult.StructuredContent.result with the SAME value the text
+// rendering in Render is derived from.
+//
+// Mode resolution and raw handling exactly mirror Render: --raw/mode=="raw"
+// returns the body decoded as JSON (or the trimmed raw string when it isn't
+// valid JSON — no double-encoding, no error). A decode failure in non-raw,
+// non-scalar mode is an error, matching Render; scalar mode falls back to the
+// trimmed raw string like Render's scalar fallback. The jq iterator's results
+// are collected into a single value (one result) or a slice (more than one) —
+// matching what Render writes line-by-line — and zero results yield nil.
+func Filtered(body []byte, out manifest.Output, opts Options) (any, error) {
+	mode := firstNonEmpty(opts.Mode, out.Mode, opts.DefaultMode, "json")
+	if opts.Raw || mode == "raw" {
+		var v any
+		if err := json.Unmarshal(body, &v); err != nil {
+			return strings.TrimRight(string(body), "\n"), nil
+		}
+		return v, nil
+	}
+
+	filter := firstNonEmpty(opts.Filter, out.DefaultFilter, ".")
+
+	var input any
+	var decodeErr error
+	if opts.ResponseCodec == "xml" {
+		input, decodeErr = DecodeXML(body)
+	} else {
+		decodeErr = json.Unmarshal(body, &input)
+	}
+	if decodeErr != nil {
+		if mode == "scalar" {
+			return strings.TrimRight(string(body), "\n"), nil
+		}
+		codec := opts.ResponseCodec
+		if codec == "" {
+			codec = "JSON"
+		}
+		return nil, fmt.Errorf("decode response as %s: %w", strings.ToUpper(codec), decodeErr)
+	}
+
+	query, err := gojq.Parse(filter)
+	if err != nil {
+		return nil, fmt.Errorf("parse filter %q: %w", filter, err)
+	}
+
+	iter := query.Run(input)
+	var results []any
+	for {
+		v, ok := iter.Next()
+		if !ok {
+			break
+		}
+		if err, ok := v.(error); ok {
+			return nil, fmt.Errorf("filter: %w", err)
+		}
+		results = append(results, v)
+	}
+
+	switch len(results) {
+	case 0:
+		return nil, nil
+	case 1:
+		return results[0], nil
+	default:
+		return results, nil
+	}
+}
+
 // DecodeXML parses XML into a map[string]any tree that gojq filters can
 // consume. The convention is:
 //

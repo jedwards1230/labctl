@@ -1,0 +1,291 @@
+/*
+ * Host themes apply CSS custom properties (see applyHostStyleVariables in
+ * main.ts) like --color-background-primary / --color-text-primary. Every
+ * var() below carries a fallback so the view also looks reasonable opened
+ * standalone in a plain browser (no host attached).
+ */
+
+:root {
+  color-scheme: light dark;
+  --lc-bg: var(--color-background-primary, light-dark(#ffffff, #16181d));
+  --lc-bg-2: var(--color-background-secondary, light-dark(#f4f5f7, #1f2228));
+  --lc-border: var(--color-border-primary, light-dark(#dde1e6, #30343c));
+  --lc-text: var(--color-text-primary, light-dark(#16181d, #e7e9ec));
+  --lc-text-muted: var(--color-text-secondary, light-dark(#5b626d, #9aa1ac));
+  --lc-accent: var(--color-accent-primary, light-dark(#2563eb, #5b9dff));
+  --lc-danger: light-dark(#b3261e, #ff8a80);
+  --lc-good: light-dark(#1d7a3d, #7be08f);
+  --lc-radius: 8px;
+  --lc-font: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  --lc-font-mono: var(
+    --font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    monospace
+  );
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--lc-bg);
+  color: var(--lc-text);
+  font-family: var(--lc-font);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+#root {
+  min-height: 100vh;
+  padding: var(--lc-safe-top, 12px) var(--lc-safe-right, 16px) var(--lc-safe-bottom, 16px)
+    var(--lc-safe-left, 16px);
+}
+
+.lc-loading,
+.lc-empty,
+.lc-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: var(--lc-text-muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.lc-error {
+  color: var(--lc-danger);
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lc-error pre {
+  max-width: 100%;
+  overflow: auto;
+  font-size: 12px;
+  color: var(--lc-text-muted);
+}
+
+.lc-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.lc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.lc-filter {
+  flex: 1 1 220px;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-bg-2);
+  color: var(--lc-text);
+  font: inherit;
+}
+
+.lc-filter:focus {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: 1px;
+}
+
+.lc-count {
+  color: var(--lc-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.lc-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  max-height: calc(100vh - 110px);
+}
+
+table.lc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--lc-bg-2);
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--lc-border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.lc-table thead th:hover {
+  color: var(--lc-accent);
+}
+
+.lc-table thead th .lc-sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.lc-table tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--lc-border);
+  vertical-align: top;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-table tbody tr:hover {
+  background: var(--lc-bg-2);
+}
+
+.lc-table tbody tr.lc-row-clickable {
+  cursor: pointer;
+}
+
+.lc-table tbody tr.lc-row-expanded {
+  background: var(--lc-bg-2);
+}
+
+.lc-mono {
+  font-family: var(--lc-font-mono);
+  font-size: 12px;
+}
+
+.lc-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.lc-pill-true {
+  background: color-mix(in srgb, var(--lc-good) 18%, transparent);
+  color: var(--lc-good);
+}
+
+.lc-pill-false {
+  background: color-mix(in srgb, var(--lc-text-muted) 18%, transparent);
+  color: var(--lc-text-muted);
+}
+
+.lc-detail-cell {
+  background: var(--lc-bg);
+  padding: 10px 14px;
+  white-space: normal;
+}
+
+.lc-detail-loading {
+  color: var(--lc-text-muted);
+  font-size: 12px;
+}
+
+.lc-record {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.lc-record th {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 12px 6px 0;
+  color: var(--lc-text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.lc-record td {
+  padding: 6px 0;
+  word-break: break-word;
+}
+
+.lc-tree-wrap {
+  position: relative;
+}
+
+.lc-copy-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-bg-2);
+  color: var(--lc-text);
+  cursor: pointer;
+}
+
+.lc-copy-btn:hover {
+  border-color: var(--lc-accent);
+  color: var(--lc-accent);
+}
+
+.lc-json {
+  margin: 0;
+  padding: 14px;
+  padding-top: 38px;
+  background: var(--lc-bg-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  font-family: var(--lc-font-mono);
+  font-size: 12px;
+  overflow: auto;
+  max-height: calc(100vh - 110px);
+}
+
+.lc-json details {
+  margin-left: 14px;
+}
+
+.lc-json summary {
+  cursor: pointer;
+}
+
+.lc-json summary:hover {
+  color: var(--lc-accent);
+}
+
+.lc-json .lc-json-key {
+  color: var(--lc-accent);
+}
+
+.lc-json .lc-json-string {
+  color: var(--lc-good);
+}
+
+.lc-json .lc-json-num {
+  color: #b08800;
+}
+
+.lc-json .lc-json-bool,
+.lc-json .lc-json-null {
+  color: var(--lc-text-muted);
+  font-style: italic;
+}
