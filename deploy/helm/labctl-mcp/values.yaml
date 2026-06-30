@@ -36,6 +36,8 @@ config:
   # Each entry is rendered into a separate ConfigMap and mounted at
   # <config-dir>/services/<name>.yaml, overriding or supplementing the
   # embedded catalog — WITHOUT rebuilding the image.
+  # IMPORTANT: provide UNINDENTED YAML strings — the template indents
+  # the content for the ConfigMap; pre-indented input over-indents.
   # Example:
   #   servicesYaml:
   #     radarr: |

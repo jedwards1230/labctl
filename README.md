@@ -98,7 +98,7 @@ level. Putting services in their own namespace means a user-defined service can
 never collide with a built-in like `list` or `doctor`:
 
 ```sh
-labctl list                           # all services (embedded + local + override), with source marker
+labctl list                           # all services with their origin (embedded / local / override)
 labctl catalog list                   # embedded catalog only (no local/override markers)
 labctl catalog show radarr            # dump an embedded manifest to stdout
 labctl catalog edit radarr            # seed it into services/ for live editing (no rebuild)

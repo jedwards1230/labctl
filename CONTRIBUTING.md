@@ -40,7 +40,7 @@ CI runs `gofmt`, `go vet`, `golangci-lint`, `go mod tidy` check, `go test -race`
 
 ## Changing an embedded manifest
 
-The embedded catalog lives in `catalog/`. Editing a manifest is **rebuild-free** — the authoring loop:
+The embedded catalog lives in `catalog/`. Editing a manifest is **rebuild-free** — the authoring loop assumes one terminal session where `LABCTL_CONFIG_DIR` stays exported throughout:
 
 1. **Seed a local override**:
    ```bash
