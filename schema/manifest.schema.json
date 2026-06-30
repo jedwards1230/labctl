@@ -281,6 +281,7 @@
         "output": { "$ref": "#/definitions/output" },
         "pagination": { "$ref": "#/definitions/pagination" },
         "mcp_ignore": { "type": "boolean", "description": "Hide this command from the MCP tool set." },
+        "ui": { "$ref": "#/definitions/ui" },
         "steps": {
           "type": "array",
           "items": { "$ref": "#/definitions/step" },
@@ -291,6 +292,44 @@
         { "required": ["method"] },
         { "required": ["steps"] }
       ]
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional presentation hints for the MCP Apps universal result View (Phase 2). DATA only — no HTML, no URLs, no base_url, no secret refs — so it carries no portability concerns. Absent = the View auto-detects the renderer by result shape.",
+      "properties": {
+        "view": {
+          "type": "string",
+          "enum": ["", "table", "record", "tree"],
+          "description": "Force a specific renderer (default: auto-detect by result shape)."
+        },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column order/subset for table view."
+        },
+        "primary": { "type": "string", "description": "Emphasized column." },
+        "badges": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "enum": ["bool"] },
+          "description": "field -> badge style (only \"bool\" supported today)."
+        },
+        "sort": { "$ref": "#/definitions/uiSort" },
+        "drilldown": { "type": "string", "description": "Command id (same service) to call on row click, passed {id}." }
+      }
+    },
+    "uiSort": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Default sort column/direction for a table-view result.",
+      "properties": {
+        "by": { "type": "string", "description": "Column to sort by." },
+        "dir": {
+          "type": "string",
+          "enum": ["", "asc", "desc"],
+          "description": "Sort direction."
+        }
+      }
     },
     "step": {
       "type": "object",

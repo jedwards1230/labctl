@@ -45,6 +45,22 @@ var validPaginationStyles = map[string]bool{
 	"fixed-query":      true,
 }
 
+// validUIViews is the exhaustive set of renderers the View understands.
+// Empty means "auto-detect by result shape".
+var validUIViews = map[string]bool{
+	"":       true,
+	"table":  true,
+	"record": true,
+	"tree":   true,
+}
+
+// validUISortDirs is the exhaustive set of ui.sort.dir values.
+var validUISortDirs = map[string]bool{
+	"":     true,
+	"asc":  true,
+	"desc": true,
+}
+
 // Validate checks a service manifest for internal consistency. It does not touch
 // the network or resolve secrets — purely structural (used by `labctl lint`). Any
 // failure is wrapped in *ConfigError so callers classify it to the usage exit
@@ -169,6 +185,11 @@ func validateNoInManifestBinding(s *Service) error {
 }
 
 func validateCommand(id string, c Command, s *Service) error {
+	// ui: is a sibling of output: at the command level and applies regardless
+	// of whether the command is a single request or a steps pipeline.
+	if err := validateUI(id, c.UI); err != nil {
+		return err
+	}
 	if len(c.Steps) > 0 {
 		return validateSteps(id, c, s)
 	}
@@ -191,6 +212,24 @@ func validateCommand(id string, c Command, s *Service) error {
 		if err := validateJSONRPCParams(id, c.Params); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateUI validates the optional ui: hint block (Phase 2). Presentation
+// data only — no base_url, no secret ref, no HTML/URLs — so it raises no
+// portability concern and is allowed in a portable manifest like output:/
+// pagination:. drilldown is intentionally NOT validated against the
+// service's command set: it SHOULD name a sibling command, but labctl has no
+// warning channel today (only Validate's hard pass/fail) and commands can be
+// declared in any order or inferred later from spec:, so a hard fail here
+// would be a false positive — any non-empty string is accepted.
+func validateUI(id string, ui UI) error {
+	if !validUIViews[ui.View] {
+		return fmt.Errorf("command %q: ui.view must be one of table|record|tree, got %q", id, ui.View)
+	}
+	if ui.Sort != nil && !validUISortDirs[ui.Sort.Dir] {
+		return fmt.Errorf("command %q: ui.sort.dir must be asc|desc, got %q", id, ui.Sort.Dir)
 	}
 	return nil
 }

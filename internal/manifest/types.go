@@ -203,7 +203,37 @@ type Command struct {
 	Output     Output            `yaml:"output"`
 	Pagination Pagination        `yaml:"pagination"`
 	MCPIgnore  bool              `yaml:"mcp_ignore"`
+	UI         UI                `yaml:"ui"`    // MCP Apps result-View hints (Phase 2)
 	Steps      []Step            `yaml:"steps"` // non-empty = composed command (Phase 3)
+}
+
+// UI carries optional presentation hints for the MCP Apps universal result
+// View (Phase 2). Every field is optional; an absent block means "auto-detect
+// the renderer by result shape" — the View reads this from
+// structuredContent.labctl.ui. The block is DATA only (no HTML, no URLs, no
+// base_url, no secret refs), so it carries no portability concerns and stays
+// allowed in a portable manifest like every other presentation-only field.
+type UI struct {
+	View      string            `yaml:"view,omitempty" json:"view,omitempty"`           // table|record|tree (default: auto)
+	Columns   []string          `yaml:"columns,omitempty" json:"columns,omitempty"`     // column order/subset for table view
+	Primary   string            `yaml:"primary,omitempty" json:"primary,omitempty"`     // emphasized column
+	Badges    map[string]string `yaml:"badges,omitempty" json:"badges,omitempty"`       // field -> badge style ("bool" only, today)
+	Sort      *UISort           `yaml:"sort,omitempty" json:"sort,omitempty"`           // default table sort
+	Drilldown string            `yaml:"drilldown,omitempty" json:"drilldown,omitempty"` // command id (same service) to call on row click, passed {id}
+}
+
+// UISort is the default sort column/direction for a table-view result.
+type UISort struct {
+	By  string `yaml:"by,omitempty" json:"by,omitempty"`
+	Dir string `yaml:"dir,omitempty" json:"dir,omitempty"` // asc|desc
+}
+
+// IsZero reports whether u carries no hints at all — the empty/default value.
+// Used to decide whether structuredContent.labctl.ui should be null (no
+// hints) or the hints object.
+func (u UI) IsZero() bool {
+	return u.View == "" && len(u.Columns) == 0 && u.Primary == "" &&
+		len(u.Badges) == 0 && u.Sort == nil && u.Drilldown == ""
 }
 
 // Step is one stage in a composed command (Phase 3 execution; parsed in Phase 1).

@@ -226,3 +226,70 @@ func TestValidateJSONRPCParams(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateUI covers the optional ui: hint block (Phase 2): a portable
+// manifest with a valid block (or none at all) passes, a bad view/sort.dir
+// value is rejected, and an arbitrary drilldown string is accepted leniently
+// (labctl has no warning channel, so a forward/cross reference is not a hard
+// failure).
+func TestValidateUI(t *testing.T) {
+	mk := func(ui UI) *Service {
+		return &Service{
+			Name:     "x",
+			Commands: map[string]Command{"list": {Method: "GET", Path: "/list", UI: ui}},
+		}
+	}
+	tests := []struct {
+		name    string
+		ui      UI
+		wantErr bool
+	}{
+		{"no ui block (zero value)", UI{}, false},
+		{"view table", UI{View: "table"}, false},
+		{"view record", UI{View: "record"}, false},
+		{"view tree", UI{View: "tree"}, false},
+		{"full hints", UI{
+			View:      "table",
+			Columns:   []string{"id", "name"},
+			Primary:   "name",
+			Badges:    map[string]string{"monitored": "bool"},
+			Sort:      &UISort{By: "name", Dir: "asc"},
+			Drilldown: "get_by_id",
+		}, false},
+		{"bad view", UI{View: "chart"}, true},
+		{"bad sort dir", UI{Sort: &UISort{By: "name", Dir: "sideways"}}, true},
+		{"sort with empty dir is fine (no override)", UI{Sort: &UISort{By: "name"}}, false},
+		{"drilldown naming a not-yet-declared/cross-service command is lenient", UI{Drilldown: "whatever_anything"}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(mk(tc.ui))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ui=%+v: wantErr=%v, got %v", tc.ui, tc.wantErr, err)
+			}
+			if tc.wantErr {
+				var cfgErr *ConfigError
+				if !errors.As(err, &cfgErr) {
+					t.Fatalf("want *ConfigError, got %T: %v", err, err)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateUIPortableNoInManifestBindingUnaffected proves the ui: block
+// carries no base_url/secret-ref portability concern: a manifest with an
+// in-manifest base_url is rejected for THAT reason regardless of ui:, and a
+// manifest with ui: but no base_url/secret-ref passes the binding check
+// cleanly — ui: never trips validateNoInManifestBinding.
+func TestValidateUIPortableNoInManifestBindingUnaffected(t *testing.T) {
+	portable := &Service{
+		Name: "x",
+		Commands: map[string]Command{
+			"list": {Method: "GET", Path: "/list", UI: UI{View: "table", Columns: []string{"id"}}},
+		},
+	}
+	if err := Validate(portable); err != nil {
+		t.Fatalf("portable manifest with ui: block should validate clean, got %v", err)
+	}
+}

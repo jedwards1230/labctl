@@ -286,6 +286,36 @@ changes.
   `<svc>_call` for jsonrpc-ws — so an agent has labctl's full write surface, not
   just the named reads (`--read-only` drops the write verbs). Same executor as
   the CLI on both transports.
+- **MCP Apps result View (read tools).** Every read tool (every command where
+  `!Write`, plus the generic `<svc>_get` verb) links to one universal,
+  shape-adaptive table/record/tree HTML View via `_meta.ui.resourceUri =
+  "ui://labctl/result"` — the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps)
+  convention. The View is a single built HTML file compiled into the binary; a
+  host that understands MCP Apps renders it inline, a host that doesn't falls
+  back to the tool's plain text content (the text result is always present —
+  StructuredContent is additive, never a replacement). A read tool's
+  `CallToolResult.StructuredContent` carries the View's input:
+  `{"result": <jq-filtered value>, "labctl": {"service", "command", "title",
+  "ui"}}` — `result` is the exact value the text rendering is derived from.
+  Write tools never carry the View link or StructuredContent (a
+  write-confirmation View is a separate, later addition). A command can shape
+  its own rendering with an optional `ui:` hint block (sibling of `output:`,
+  presentation data only — no HTML, no URLs, no secrets, so it stays portable):
+  ```yaml
+  commands:
+    list:
+      method: GET
+      path: /api/v3/movie
+      ui:
+        view: table          # table|record|tree (default: auto-detect by result shape)
+        columns: [id, title, monitored]
+        primary: title
+        badges: { monitored: bool }
+        sort: { by: title, dir: asc }
+        drilldown: get_by_id # command id (same service) to call on row click
+  ```
+  Absent `ui:`, the View auto-detects: an array of objects renders as a table, a
+  single object as a record, anything else as a collapsible tree/JSON view.
   The streamable-HTTP `/mcp` endpoint is unauthenticated by default — network
   reachability is the access boundary. Two opt-in boundaries restrict who can
   reach it (both default-off, so the default behavior is unchanged): an optional
@@ -342,7 +372,9 @@ Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic
 override; OpenAPI inference (`spec:`); composed `steps:` pipelines; an embedded
 catalog of 15 portable manifests plus installable named catalogs (`catalog
 add/update/remove/installed`; precedence local `services/` > installed catalogs >
-embedded); optional OpenTelemetry tracing.
+embedded); optional OpenTelemetry tracing; an MCP Apps result View
+(`ui://labctl/result`) for every read tool, with an optional per-command `ui:`
+hint block (Phase 1+2 — read tools only; a write-confirmation View is planned).
 
 `labctl init <service>` scaffolds a commented starter manifest (pick the auth
 stanza with `--auth`, write a file with `-o`) that validates against `labctl

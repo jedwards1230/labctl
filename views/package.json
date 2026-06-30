@@ -1,0 +1,22 @@
+{
+  "name": "labctl-mcp-app-view",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Universal adaptive result View for labctl's MCP Apps integration (table/record/tree renderer)",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "watch": "vite build --watch",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}
