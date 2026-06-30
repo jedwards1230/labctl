@@ -110,3 +110,5 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 podAnnotations: {}
+# -- Additional pod labels
+podLabels: {}
