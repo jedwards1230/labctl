@@ -176,6 +176,10 @@ changes.
   either stdio MCP (default) or streamable-HTTP (`labctl mcp --http :9000`, MCP
   endpoint at `/mcp`, with a `GET /healthz` liveness probe for in-cluster
   deployment behind an MCP gateway). Same executor as the CLI on both transports.
+  The streamable-HTTP `/mcp` endpoint has **no app-layer auth** — network
+  reachability is the access boundary, so the [`labctl-mcp` chart](deploy/helm/labctl-mcp)
+  ships an opt-in NetworkPolicy (`networkPolicy.enabled`) to restrict who can
+  reach the port.
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. A ref is routed to a provider by its
   URI scheme (`op://` → the 1Password provider; the seam is open for `aws://`,

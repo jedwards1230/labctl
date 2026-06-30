@@ -51,6 +51,35 @@ func NewHTTPHandler(
 	return mux
 }
 
+// newHTTPServer constructs the http.Server for the streamable-HTTP transport
+// with timeouts tuned for the MCP streaming contract. It is a separate function
+// so the timeout policy is unit-testable without binding a listener.
+//
+// Timeout rationale:
+//   - ReadHeaderTimeout (10s): bounds slow-header (Slowloris) attacks.
+//   - ReadTimeout (60s): bounds the full request read. Streamable-HTTP MCP
+//     requests are small, quick JSON-RPC POST bodies (and bodyless GETs for the
+//     server→client SSE listen stream), so 60s is generous headroom even for
+//     slow clients or congestion while still adding resource-exhaustion
+//     protection. The long-lived stream is the RESPONSE (governed by
+//     WriteTimeout below), not the request read.
+//   - IdleTimeout (120s): bounds idle keep-alive connection reuse.
+//   - WriteTimeout is intentionally LEFT AT 0 (unlimited) because MCP streaming
+//     responses have no upper bound on duration — any finite WriteTimeout would
+//     eventually truncate a long-lived stream mid-response (even a large value
+//     like 300s only defers the truncation, it does not make it safe). Do not
+//     set it — that is not a bug to "fix".
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// WriteTimeout deliberately omitted (0 = unlimited) — see doc comment.
+	}
+}
+
 // ServeHTTP builds the MCP server and serves it over the streamable-HTTP
 // transport on addr, blocking until ctx is cancelled. The MCP endpoint is
 // mounted at /mcp and a GET /healthz liveness probe at /healthz. On ctx
@@ -65,11 +94,7 @@ func ServeHTTP(
 	stderr io.Writer,
 	opts Options,
 ) error {
-	httpSrv := &http.Server{
-		Addr:              addr,
-		Handler:           NewHTTPHandler(loaded, cfg, version, tracer, stderr, opts),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	httpSrv := newHTTPServer(addr, NewHTTPHandler(loaded, cfg, version, tracer, stderr, opts))
 
 	if stderr != nil {
 		_, _ = fmt.Fprintf(stderr, "labctl mcp: serving streamable-HTTP on %s (MCP at %s, health at %s)\n",

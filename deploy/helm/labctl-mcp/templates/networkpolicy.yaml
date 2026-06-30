@@ -1,0 +1,42 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "labctl-mcp.fullname" . }}
+  labels:
+    {{- include "labctl-mcp.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "labctl-mcp.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if .Values.networkPolicy.egress.enabled }}
+    - Egress
+    {{- end }}
+  {{- if .Values.networkPolicy.ingress.from }}
+  # Allow only the listed peers to reach the MCP port. Peers are OR-combined.
+  ingress:
+    - from:
+        {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+  {{- else }}
+  # No allowed sources: an EMPTY ingress rule list (not a rule with an empty
+  # `from:`) is the genuine default-deny. Per the NetworkPolicy spec, a rule
+  # whose `from:` is empty/missing matches ALL sources (allow-all) — exactly
+  # what we must avoid — so we deliberately emit zero rules here.
+  ingress: []
+  {{- end }}
+  {{- if .Values.networkPolicy.egress.enabled }}
+  {{- if .Values.networkPolicy.egress.rules }}
+  egress:
+    {{- toYaml .Values.networkPolicy.egress.rules | nindent 4 }}
+  {{- else }}
+  # Egress enabled with no rules: an empty egress rule list = default-deny
+  # egress (same allow-all caveat as ingress applies, hence zero rules).
+  egress: []
+  {{- end }}
+  {{- end }}
+{{- end }}
