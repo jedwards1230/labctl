@@ -211,10 +211,16 @@ changes.
   `<svc>_call` for jsonrpc-ws — so an agent has labctl's full write surface, not
   just the named reads (`--read-only` drops the write verbs). Same executor as
   the CLI on both transports.
-  The streamable-HTTP `/mcp` endpoint has **no app-layer auth** — network
-  reachability is the access boundary, so the [`labctl-mcp` chart](deploy/helm/labctl-mcp)
-  ships an opt-in NetworkPolicy (`networkPolicy.enabled`) to restrict who can
-  reach the port.
+  The streamable-HTTP `/mcp` endpoint is unauthenticated by default — network
+  reachability is the access boundary. Two opt-in boundaries restrict who can
+  reach it (both default-off, so the default behavior is unchanged): an optional
+  bearer token (`labctl mcp --http :9000 --auth-token-file <path>`, or the
+  `LABCTL_MCP_AUTH_TOKEN` env var) that requires `Authorization: Bearer <token>`
+  on `/mcp` (constant-time compared; `401` otherwise — `GET /healthz` stays open),
+  and the [`labctl-mcp` chart](deploy/helm/labctl-mcp)'s opt-in NetworkPolicy
+  (`networkPolicy.enabled`). Both are *transport-layer access control* (who may
+  reach the endpoint at all), not per-tool policy gating — labctl stays an
+  unopinionated executor.
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. A ref is routed to a provider by its
   URI scheme (`op://` → the 1Password provider; the seam is open for `aws://`,

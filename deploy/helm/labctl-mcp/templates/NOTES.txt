@@ -7,6 +7,15 @@ Tool exposure:
   read-only : {{ .Values.mcp.readOnly }}
   services  : {{ if .Values.mcp.services }}{{ join ", " .Values.mcp.services }}{{ else }}all{{ end }}
 
+Endpoint auth (transport-layer):
+  /mcp     : {{ if .Values.mcp.auth.enabled }}bearer token required (Authorization: Bearer <token>){{ else }}none — network reachability is the only boundary{{ end }}
+  /healthz : open (liveness/readiness probe — never authenticated)
+{{- if not .Values.mcp.auth.enabled }}
+
+NOTE: /mcp has no app-layer auth. Enable mcp.auth.enabled (with a token source)
+and/or networkPolicy.enabled to restrict who can reach it.
+{{- end }}
+
 {{- $secretName := include "labctl-mcp.secretName" . }}
 {{- if not $secretName }}
 

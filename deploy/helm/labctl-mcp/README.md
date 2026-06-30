@@ -22,6 +22,9 @@ helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
 | `mcp.http` | `:9000` | listen address for `labctl mcp --http` |
 | `mcp.readOnly` | `false` | `--read-only`: expose read tools only |
 | `mcp.services` | `[]` | `--service` allowlist (empty = all) |
+| `mcp.auth.enabled` | `false` | require `Authorization: Bearer <token>` on `/mcp` (transport-layer access control) |
+| `mcp.auth.existingSecret.name` | `""` | secret holding the bearer token |
+| `mcp.auth.onePasswordItem.itemPath` | `""` | render a OnePasswordItem CRD for the bearer token instead (1Password operator) |
 | `config.profileYaml` | `""` | per-env binding (base_url + op:// refs) → `/config/profile.yaml` |
 | `config.configYaml` | `""` | optional `/config/config.yaml` |
 | `auth.existingSecret.name` | `""` | secret holding the op service-account token |
@@ -35,10 +38,24 @@ helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
 Service manifests are embedded in the labctl binary — only `profile.yaml`
 (and optional `config.yaml`) need supplying.
 
-## Network reachability is the access boundary
+## Access boundaries
 
-The `/mcp` endpoint has **no application-layer auth** — whoever can reach the
-port can call every tool. In any cluster that supports NetworkPolicy, enable
+Two independent, composable boundaries guard the endpoint. By default **both are
+off** — `/mcp` is reachable by anyone who can route to the port, calling every
+tool. Use either or both:
+
+1. **NetworkPolicy** (`networkPolicy.enabled`) — restricts *which peers* can
+   reach the port at the network layer (see below).
+2. **Bearer-token auth** (`mcp.auth.enabled`) — an app-layer check that requires
+   `Authorization: Bearer <token>` on `/mcp` (see [Endpoint authentication](#endpoint-authentication-bearer-token)).
+
+These are transport-/network-layer access control (*who may reach the endpoint at
+all*), not per-tool policy gating — labctl stays an unopinionated executor.
+`GET /healthz` is always unauthenticated so liveness/readiness probes work.
+
+### NetworkPolicy
+
+In any cluster that supports NetworkPolicy, enable
 `networkPolicy.enabled` and list only the peers that should reach it (e.g. an
 MCP gateway). With `networkPolicy.enabled=true` and an empty
 `networkPolicy.ingress.from`, the pod is default-deny ingress (no source may
@@ -93,7 +110,41 @@ networkPolicy:
           - { port: 443, protocol: TCP }
 ```
 
+## Endpoint authentication (bearer token)
+
+`mcp.auth.enabled` adds an optional app-layer boundary: every request to `/mcp`
+must carry `Authorization: Bearer <token>`; missing/invalid tokens get `401`
+(compared in constant time). `GET /healthz` is never authenticated. This is
+opt-in and default-off — leaving it disabled preserves the previous behavior.
+
+Supply the token from a Secret:
+
+```yaml
+mcp:
+  auth:
+    enabled: true
+    existingSecret:
+      name: labctl-mcp-bearer   # key "token" by default
+```
+
+…or have the 1Password operator mint it (renders a OnePasswordItem CRD named
+`<release>-labctl-mcp-mcp-auth-token`):
+
+```yaml
+mcp:
+  auth:
+    enabled: true
+    onePasswordItem:
+      itemPath: vaults/homelab/items/k8s-mcp-gateway-labctl-mcp-auth
+```
+
+Enabling `mcp.auth.enabled` without a token source is a hard render error
+(fail-closed) rather than a silently-unauthenticated deploy. The token is
+injected as the `LABCTL_MCP_AUTH_TOKEN` env var — never passed on argv.
+
 ## Federating into ContextForge
 
 Register a gateway with `transport: STREAMABLEHTTP` pointing at
-`http://<release>-labctl-mcp.<ns>.svc:9000/mcp`.
+`http://<release>-labctl-mcp.<ns>.svc:9000/mcp`. When `mcp.auth.enabled` is set,
+configure the gateway with the matching bearer token (a `Authorization: Bearer
+<token>` header) so it can reach the endpoint.

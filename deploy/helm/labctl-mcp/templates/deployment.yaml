@@ -58,6 +58,17 @@ spec:
                   name: {{ $secretName }}
                   key: {{ include "labctl-mcp.secretKey" . }}
             {{- end }}
+            {{- if .Values.mcp.auth.enabled }}
+            {{- $mcpAuthSecret := include "labctl-mcp.mcpAuthSecretName" . }}
+            {{- if not $mcpAuthSecret }}
+            {{- fail "mcp.auth.enabled=true requires a token source: set mcp.auth.existingSecret.name or mcp.auth.onePasswordItem.itemPath" }}
+            {{- end }}
+            - name: LABCTL_MCP_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $mcpAuthSecret }}
+                  key: {{ include "labctl-mcp.mcpAuthSecretKey" . }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

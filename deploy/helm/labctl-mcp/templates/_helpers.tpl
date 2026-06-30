@@ -56,3 +56,25 @@ release; otherwise an existingSecret name must be supplied.
 {{- .Values.auth.existingSecret.key -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Resolve the secret name holding the MCP bearer token (transport-layer auth on
+the /mcp endpoint). When mcp.auth.onePasswordItem.itemPath is set, the operator
+syncs a secret named after this release; otherwise mcp.auth.existingSecret.name
+must be supplied. Empty result signals "no source configured".
+*/}}
+{{- define "labctl-mcp.mcpAuthSecretName" -}}
+{{- if .Values.mcp.auth.onePasswordItem.itemPath -}}
+{{- printf "%s-mcp-auth-token" (include "labctl-mcp.fullname" .) -}}
+{{- else -}}
+{{- .Values.mcp.auth.existingSecret.name -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "labctl-mcp.mcpAuthSecretKey" -}}
+{{- if .Values.mcp.auth.onePasswordItem.itemPath -}}
+{{- .Values.mcp.auth.onePasswordItem.key -}}
+{{- else -}}
+{{- .Values.mcp.auth.existingSecret.key -}}
+{{- end -}}
+{{- end -}}
