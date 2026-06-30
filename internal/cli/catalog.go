@@ -59,6 +59,10 @@ func (r *runner) cmdCatalog() *cobra.Command {
 	cmd.AddCommand(r.cmdCatalogShow())
 	cmd.AddCommand(r.cmdCatalogEdit())
 	cmd.AddCommand(r.cmdCatalogVendor())
+	cmd.AddCommand(r.cmdCatalogAdd())
+	cmd.AddCommand(r.cmdCatalogUpdate())
+	cmd.AddCommand(r.cmdCatalogRemove())
+	cmd.AddCommand(r.cmdCatalogInstalled())
 	return cmd
 }
 

@@ -28,7 +28,7 @@ pre-call hook), not baked into the tool. Don't add safety/policy logic here.
 main.go                 entry → internal/cli
 catalog/                portable service manifests embedded in the binary (//go:embed *.yaml)
 internal/
-  manifest/   YAML model + XDG load/merge + schema validation + embedded-catalog merge
+  manifest/   YAML model + XDG load/merge + schema validation + embedded/installed-catalog merge + catalog store
   command/    format-neutral Command model + producers (commands: block, generic verbs)
   template/   {secret.X}/{env.X}/{arg.N}/{var} expansion (JSON braces pass through)
   secret/     scheme-dispatched Provider interface (op:// → 1Password) + env override
@@ -88,19 +88,43 @@ ships sane defaults. The authoring loop:
   clobber without `--force`. `--catalog-dir` is required because the running
   binary can't know the repo path.
 
+Named, installable catalogs (done): beyond the single embedded catalog, install
+**named** catalogs of portable manifests into `<config-dir>/catalogs/<name>/` from
+a directory or a git repo:
+
+- `labctl catalog add <source> [--name --ref --force]` — fetch a dir or git URL,
+  validate every top-level `*.yaml` against the schema AND structural `Validate`
+  (portability: no `base_url`/secret `ref`) fail-closed, then install atomically
+  (stage in a temp dir, swap into place). A git source is pinned to its resolved
+  commit SHA in `.labctl-catalog.json`. Git fetches shell to the system `git` with
+  `ext`/`fd` transports blocked and the URL after `--` (no shell).
+- `labctl catalog update [name]` / `remove <name>` / `installed`.
+- **Resolution precedence (highest wins):** local `services/<name>.yaml` >
+  installed catalogs (`catalogs/*/`, sorted) > embedded floor. `OriginOf` returns
+  the dynamic `catalog:<name>` for an installed-catalog service; a local file
+  shadowing one is `override`. Two installed catalogs claiming one service name is
+  a hard load error naming both (fail-closed). The portability rule is the
+  security boundary (enforced on add AND at load), so a catalog is inert until
+  `profile.yaml` binds it — no signing needed, no execution-time gating added.
+  Store API lives in `internal/manifest/catalogstore.go`; the validate-on-add gate
+  (`SchemaValidate`/`ValidatePortableManifest`) in `internal/manifest/schemacheck.go`;
+  CLI handlers in `internal/cli/catalog_install.go`.
+
 ## Conventions
 
 - stdout = data, stderr = diagnostics, real exit codes (0 ok, 2 usage, 3 auth,
   4 HTTP≥400, 5 network, 6 decode).
 - Secrets are refs (`op://...`) resolved at call time — never values in manifests,
   never in argv, redacted in verbose/dry-run output.
-- Services resolve from **two sources, local overrides embedded**: the embedded
-  catalog (the top-level `catalog` package, the 15 built-in portable manifests) is the
-  fallback, and a local `<config-dir>/services/<name>.yaml` of the same name
-  overrides it (marked `override` in `list`; a local-only service is `local`,
-  catalog-only is `embedded`). Two *local* files with one name is still a
-  duplicate error; a local file shadowing an embedded one is not. Absent a local
-  `services/` dir, all 15 come from the catalog.
+- Services resolve from **three sources, highest wins**: a local
+  `<config-dir>/services/<name>.yaml` > an installed named catalog
+  (`<config-dir>/catalogs/*/`) > the embedded catalog (the top-level `catalog`
+  package, the 15 built-in portable manifests). `list` marks each `local`,
+  `override` (a local file shadowing embedded/an installed catalog), `catalog:<name>`
+  (from an installed catalog), or `embedded`. Two *local* files with one name is
+  still a duplicate error; two installed catalogs defining one name is a hard load
+  error naming both. Absent any local `services/` or `catalogs/`, all 15 come from
+  the embedded catalog.
 - A manifest is **portable** (what a service *is*); user-specific endpoints and
   credentials (`base_url`, secret `ref`s, per-machine endpoint/var/tls overrides)
   live in a `profile.yaml` at the config root, which is the **sole** binding

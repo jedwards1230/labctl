@@ -36,7 +36,9 @@ Override the config dir with `LABCTL_CONFIG_DIR=<path>` or `--config-dir <path>`
 ~/.config/labctl/
 ├── config.yaml            # global defaults + secret resolver
 ├── profile.yaml           # optional per-user binding (base_url + secret refs)
-└── services/              # optional: local overrides or new services
+├── services/              # optional: local overrides or new services
+└── catalogs/              # optional: installed named catalogs (catalog add)
+    └── <name>/            #   one bundle of portable *.yaml manifests + .labctl-catalog.json
 ```
 
 Run `labctl init` (no argument) to provision this layout — it creates the dir,
@@ -103,6 +105,8 @@ labctl catalog list                   # embedded catalog only (no local/override
 labctl catalog show radarr            # dump an embedded manifest to stdout
 labctl catalog edit radarr            # seed it into services/ for live editing (no rebuild)
 labctl catalog vendor radarr --catalog-dir ./catalog   # promote an edited override into a repo checkout
+labctl catalog add ./my-manifests     # install a named catalog (dir or git source)
+labctl catalog installed              # list installed named catalogs
 labctl svc                            # same list as `list`, under the svc namespace
 labctl svc tdarr get /api/v2/status   # generic verb passthrough
 labctl svc tdarr status               # a named command, if the manifest defines one
@@ -151,6 +155,44 @@ labctl repo checkout's `catalog/` source tree (`--catalog-dir` points at it; the
 running binary can't know the repo path). It **validates** the override first — a
 portable manifest with no `base_url`/secret `ref` — so a broken manifest is never
 promoted, and won't overwrite an existing `catalog/<name>.yaml` without `--force`.
+
+### Named, installable catalogs
+
+The embedded catalog is the floor every install gets for free. Beyond it you can
+**install your own named catalogs** — bundles of portable manifests fetched from a
+directory or a git repo — into `<config-dir>/catalogs/<name>/`:
+
+```sh
+labctl catalog add ./my-manifests                       # install a local dir as a catalog (name = dir basename)
+labctl catalog add https://git.example/team/labctl-catalog.git   # …or a git repo (name = repo basename)
+labctl catalog add git@host:team/cat.git --name team --ref v1.2  # scp-style remote, pinned to a ref
+labctl catalog installed                                # list installed catalogs (name, type, commit/ref, source)
+labctl catalog update [name]                            # re-fetch one (or all) from the recorded source
+labctl catalog remove <name>                            # uninstall a catalog
+```
+
+**Resolution precedence (highest wins):** a local `services/<name>.yaml`  >  an
+installed catalog  >  the embedded catalog. `labctl list` marks an
+installed-catalog service `catalog:<name>`; a local file shadowing one shows as
+`override`, and the embedded floor stays `embedded`. Two installed catalogs that
+define the same service name is a hard error at load (fail-closed) that names both
+— remove one.
+
+**Security framing.** A catalog manifest carries **no endpoints or credentials**:
+`catalog add` validates every `*.yaml` against the manifest schema *and* the
+portability rule (no `base_url`, no secret `ref`) before writing anything — one
+bad manifest rejects the whole add, and the same rule is re-enforced at load. So
+an installed catalog is **inert** until your `profile.yaml` binds it to a machine.
+That portability boundary is why catalogs need **no signing**: there is nothing
+executable or secret to trust — only the shape of an API. A git source is pinned
+to its resolved **commit SHA** (recorded in `.labctl-catalog.json`), so an install
+is reproducible and `catalog update` re-pins it. (Git fetches go through the
+system `git` with `ext`/`fd` transport helpers blocked and the URL passed as a
+single argument after `--`, never a shell.)
+
+Installing a catalog only makes more manifests *available* — there is no
+execution-time policy gating; labctl stays an [unopinionated
+executor](#how-it-works).
 
 ### Portable manifests & profiles
 
@@ -298,8 +340,9 @@ Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic
 `oauth2-client-credentials`/`ws-login` auth; scheme-dispatched secrets providers
 (1Password today, with optional service-account-token injection) and env
 override; OpenAPI inference (`spec:`); composed `steps:` pipelines; an embedded
-catalog of 15 portable manifests (local `services/` overrides by name); optional
-OpenTelemetry tracing.
+catalog of 15 portable manifests plus installable named catalogs (`catalog
+add/update/remove/installed`; precedence local `services/` > installed catalogs >
+embedded); optional OpenTelemetry tracing.
 
 `labctl init <service>` scaffolds a commented starter manifest (pick the auth
 stanza with `--auth`, write a file with `-o`) that validates against `labctl

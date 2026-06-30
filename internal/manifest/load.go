@@ -25,8 +25,22 @@ type Origin string
 const (
 	OriginEmbedded Origin = "embedded" // built-in catalog manifest (top-level catalog package)
 	OriginLocal    Origin = "local"    // local services/<name>.yaml with no embedded counterpart
-	OriginOverride Origin = "override" // local services/<name>.yaml shadowing an embedded service
+	OriginOverride Origin = "override" // local services/<name>.yaml shadowing an embedded/installed service
 )
+
+// originCatalogPrefix marks a provenance value for an installed (named) catalog:
+// the dynamic origin "catalog:<name>" records which installed catalog supplied a
+// service. It sits between the embedded floor and a local override in precedence.
+const originCatalogPrefix = "catalog:"
+
+// catalogOrigin builds the dynamic Origin for an installed catalog of the given name.
+func catalogOrigin(name string) Origin { return Origin(originCatalogPrefix + name) }
+
+// IsCatalog reports whether this Origin came from an installed catalog.
+func (o Origin) IsCatalog() bool { return strings.HasPrefix(string(o), originCatalogPrefix) }
+
+// CatalogName returns the installed-catalog name for a catalog Origin (empty otherwise).
+func (o Origin) CatalogName() string { return strings.TrimPrefix(string(o), originCatalogPrefix) }
 
 // Loaded is the merged result of a config dir: the global config plus every
 // service manifest, keyed by selector name. Services come from the embedded
@@ -124,9 +138,19 @@ func Load(dir string) (*Loaded, error) {
 		l.Origins[svc.Name] = OriginEmbedded
 	}
 
+	// Installed (named) catalogs, loaded AFTER the embedded floor and BEFORE the
+	// local services/ dir, so precedence is local > installed catalogs > embedded.
+	// An installed catalog shadows the embedded one of the same name; two installed
+	// catalogs claiming one name is a hard error (fail-closed). A missing catalogs/
+	// dir is not an error.
+	if err := loadInstalledCatalogs(l, profile); err != nil {
+		return nil, err
+	}
+
 	// Local service manifests (optional dir). A local file overrides the embedded
-	// service of the same name — that is the feature, not a duplicate error. Two
-	// LOCAL files claiming the same name is still a real duplicate.
+	// (or installed-catalog) service of the same name — that is the feature, not a
+	// duplicate error. Two LOCAL files claiming the same name is still a real
+	// duplicate.
 	svcDir := filepath.Join(dir, "services")
 	entries, err := os.ReadDir(svcDir)
 	if err != nil {
@@ -149,11 +173,12 @@ func Load(dir string) (*Loaded, error) {
 			svc.Name = strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".yml")
 		}
 		finalizeService(svc, l.Config, profile)
-		switch l.Origins[svc.Name] {
-		case OriginLocal, OriginOverride:
+		prior := l.Origins[svc.Name]
+		switch {
+		case prior == OriginLocal || prior == OriginOverride:
 			return nil, fmt.Errorf("duplicate service name %q in %s", svc.Name, path)
-		case OriginEmbedded:
-			l.Origins[svc.Name] = OriginOverride // local shadows the embedded one
+		case prior == OriginEmbedded || prior.IsCatalog():
+			l.Origins[svc.Name] = OriginOverride // local shadows the embedded one or an installed catalog
 		default:
 			l.Origins[svc.Name] = OriginLocal
 		}
@@ -164,6 +189,77 @@ func Load(dir string) (*Loaded, error) {
 	// partial config dir still loads while the mismatch is surfaced.
 	warnOrphanProfileBindings(profile, l.Services, os.Stderr)
 	return l, nil
+}
+
+// loadInstalledCatalogs merges every manifest under <dir>/catalogs/<cat>/ into l,
+// after the embedded floor and before the local services/ dir. Catalog subdirs
+// are visited in sorted name order and each catalog's manifests in sorted file
+// order, so the load is deterministic. An installed catalog SHADOWS the embedded
+// service of the same name (origin → catalog:<cat>); two installed catalogs
+// defining one service is a hard error (fail-closed). A missing catalogs/ dir is
+// not an error; a malformed installed manifest fails Load (consistent with
+// services/).
+func loadInstalledCatalogs(l *Loaded, profile *Profile) error {
+	catalogsDir := CatalogsDir(l.Dir)
+	entries, err := os.ReadDir(catalogsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", catalogsDir, err)
+	}
+	cats := make([]string, 0, len(entries))
+	for _, e := range entries {
+		// Skip non-dirs and dot-prefixed dirs (a crashed `catalog add` can leave a
+		// .tmp-* staging dir behind; loading it as a phantom catalog would, worse,
+		// trip the cross-catalog collision check and brick every load).
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		cats = append(cats, e.Name())
+	}
+	sort.Strings(cats)
+	for _, cat := range cats {
+		catDir := filepath.Join(catalogsDir, cat)
+		files, err := os.ReadDir(catDir)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", catDir, err)
+		}
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			if f.IsDir() || !isYAML(f.Name()) {
+				continue // ignore .labctl-catalog.json and any non-YAML
+			}
+			names = append(names, f.Name())
+		}
+		sort.Strings(names)
+		for _, fname := range names {
+			path := filepath.Join(catDir, fname)
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", path, err)
+			}
+			svc, err := decodeService(b, fmt.Sprintf("catalogs/%s/%s", cat, fname), l.Dir, os.Stderr)
+			if err != nil {
+				return err
+			}
+			if svc.Name == "" {
+				svc.Name = strings.TrimSuffix(strings.TrimSuffix(fname, ".yaml"), ".yml")
+			}
+			finalizeService(svc, l.Config, profile)
+			// Collision policy: a name already claimed by an installed catalog is a
+			// hard error; the embedded floor (or unset) is shadowed, which is allowed.
+			if prior := l.Origins[svc.Name]; prior.IsCatalog() {
+				if prior.CatalogName() == cat {
+					return fmt.Errorf("service %q defined more than once in catalog %q", svc.Name, cat)
+				}
+				return fmt.Errorf("service %q is defined by two installed catalogs (%q and %q); remove one", svc.Name, prior.CatalogName(), cat)
+			}
+			l.Services[svc.Name] = svc
+			l.Origins[svc.Name] = catalogOrigin(cat)
+		}
+	}
+	return nil
 }
 
 // finalizeService applies global defaults then the user's profile binding (if
