@@ -97,18 +97,52 @@ a directory or a git repo:
   (portability: no `base_url`/secret `ref`) fail-closed, then install atomically
   (stage in a temp dir, swap into place). A git source is pinned to its resolved
   commit SHA in `.labctl-catalog.json`. Git fetches shell to the system `git` with
-  `ext`/`fd` transports blocked and the URL after `--` (no shell).
+  `ext`/`fd` transports blocked and the URL after `--` (no shell). `--openapi
+  <url|file>` materializes a single-service portable manifest from an OpenAPI
+  3.x document instead (operations → `commands:`, `securitySchemes` inferred
+  into `auth:` on a best-effort basis, un-mappable auth falls back to `auth: {
+  strategy: none }` with an explanatory comment; `servers[]` is never carried
+  over; the spec is parsed once at add-time and not vendored — no `spec:`
+  reference is kept). Implementation: `internal/manifest/openapi_scaffold.go`
+  + `internal/cli/catalog_openapi.go`.
 - `labctl catalog update [name]` / `remove <name>` / `installed`.
+- `labctl catalog validate <dir>` — the SAME fail-closed gate `catalog add`
+  runs (`ValidatePortableManifest` + intra-dir duplicate-name check), exposed
+  read-only and config-dir-free: no network, no install, no profile/catalog
+  interaction — just a per-file `ok`/`FAIL` report and exit 0/2. This is what a
+  third-party catalog repo runs in its own CI (see the `validate-catalog`
+  composite action below) before anyone runs `catalog add` against it.
+  Implementation: `internal/cli/catalog_validate.go`.
 - **Resolution precedence (highest wins):** local `services/<name>.yaml` >
   installed catalogs (`catalogs/*/`, sorted) > embedded floor. `OriginOf` returns
   the dynamic `catalog:<name>` for an installed-catalog service; a local file
-  shadowing one is `override`. Two installed catalogs claiming one service name is
-  a hard load error naming both (fail-closed). The portability rule is the
-  security boundary (enforced on add AND at load), so a catalog is inert until
-  `profile.yaml` binds it — no signing needed, no execution-time gating added.
-  Store API lives in `internal/manifest/catalogstore.go`; the validate-on-add gate
+  shadowing one is `override`. **Two installed catalogs MAY define the same
+  service name** — both install (no load error); each stays addressable via its
+  qualified `<catalog>:<service>` selector (`Loaded.Services` keys every
+  installed-catalog service both ways — bare AND qualified — except a bare name
+  more than one catalog defines, which is dropped from `Services` and recorded in
+  `Loaded.Ambiguous` instead). `Loaded.Lookup` on an ambiguous bare name is a
+  `*ConfigError` (exit 2) listing both qualified forms — labctl never silently
+  picks one. The MCP server derives a tool's name from the *selector*
+  (`<catalog>-<service>_<command>` once qualified, `:` sanitized to `-`), so
+  installing a second catalog that collides with an existing name **renames**
+  the first catalog's tools from `<service>_<command>` to
+  `<catalog>-<service>_<command>` — inherent to disambiguation, not a bug, but
+  worth knowing (`internal/mcpserver/mcpserver.go`'s `selectorToolPrefix`).
+  The portability rule is the security boundary (enforced on add AND at load),
+  so a catalog is inert until `profile.yaml` binds it — no signing needed, no
+  execution-time gating added. Store API lives in
+  `internal/manifest/catalogstore.go`; the validate-on-add gate
   (`SchemaValidate`/`ValidatePortableManifest`) in `internal/manifest/schemacheck.go`;
   CLI handlers in `internal/cli/catalog_install.go`.
+- `.github/actions/validate-catalog` — a composite action a third-party catalog
+  repo points its own CI at (`uses:
+  jedwards1230/labctl/.github/actions/validate-catalog@v1`): installs labctl
+  (`go install …@<version>`, default `latest`) and runs `labctl catalog
+  validate <path>` against it. `examples/catalog/` (singular — NOT
+  `examples/catalogs/`, which `Load` would scan as an installed catalog) is the
+  reference catalog both this action and `internal/manifest/example_catalog_test.go`
+  exercise in CI, with its own authoring/publishing README.
 
 ## Conventions
 
@@ -122,9 +156,11 @@ a directory or a git repo:
   package, the 15 built-in portable manifests). `list` marks each `local`,
   `override` (a local file shadowing embedded/an installed catalog), `catalog:<name>`
   (from an installed catalog), or `embedded`. Two *local* files with one name is
-  still a duplicate error; two installed catalogs defining one name is a hard load
-  error naming both. Absent any local `services/` or `catalogs/`, all 15 come from
-  the embedded catalog.
+  still a duplicate error. Two *installed catalogs* defining one name is **not**
+  an error — both stay addressable as `<catalog>:<service>`; the bare name is
+  ambiguous and errors (listing both qualified forms) until you qualify it.
+  Absent any local `services/` or `catalogs/`, all 15 come from the embedded
+  catalog.
 - A manifest is **portable** (what a service *is*); user-specific endpoints and
   credentials (`base_url`, secret `ref`s, per-machine endpoint/var/tls overrides)
   live in a `profile.yaml` at the config root, which is the **sole** binding

@@ -34,6 +34,9 @@ go build ./...
 LABCTL_CONFIG_DIR="$PWD/examples" ./labctl list
 LABCTL_CONFIG_DIR="$PWD/examples" ./labctl lint
 LABCTL_CONFIG_DIR="$PWD/examples" ./labctl --dry-run svc radarr list
+
+# Validate the reference catalog (read-only, no config dir needed)
+./labctl catalog validate examples/catalog
 ```
 
 CI runs `gofmt`, `go vet`, `golangci-lint`, `go mod tidy` check, `go test -race` (with a 75% coverage floor), and `go build`. All checks must pass before a PR can merge.

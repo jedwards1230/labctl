@@ -305,16 +305,13 @@ func (r *runner) catalogInstalled() error {
 // selector; the bare name becomes ambiguous (see manifest.Loaded.Ambiguous) and
 // is resolved at load/lookup time, not blocked here.
 func (r *runner) collectAndValidate(fetchDir, source, _ string) (map[string][]byte, error) {
-	entries, err := os.ReadDir(fetchDir)
+	entries, err := yamlEntriesIn(fetchDir)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", source, err)
 	}
 	files := map[string][]byte{}
 	svcToFile := map[string]string{} // service name → filename, within this source
 	for _, e := range entries {
-		if e.IsDir() || !isYAMLFile(e.Name()) {
-			continue
-		}
 		path := filepath.Join(fetchDir, e.Name())
 		b, err := os.ReadFile(path)
 		if err != nil {

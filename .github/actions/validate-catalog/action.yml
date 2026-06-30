@@ -1,0 +1,39 @@
+# Composite action a third-party catalog repository wires into its own CI to
+# check its manifests against labctl's contract: installs labctl, then runs
+# `labctl catalog validate <path>` (read-only — no network, no install, no
+# config dir) against the catalog directory.
+name: Validate labctl catalog
+description: >-
+  Validate a directory of portable labctl service manifests with
+  `labctl catalog validate` (the same fail-closed gate `labctl catalog add`
+  enforces).
+
+inputs:
+  path:
+    description: Catalog directory to validate (top-level *.yaml/*.yml manifests).
+    required: false
+    default: "."
+  version:
+    description: labctl version/ref to install (passed to `go install …@<version>`).
+    required: false
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: "1.25"
+        cache: true
+
+    - name: Install labctl
+      shell: bash
+      env:
+        LABCTL_VERSION: ${{ inputs.version }}
+      run: go install "github.com/jedwards1230/labctl@${LABCTL_VERSION}"
+
+    - name: labctl catalog validate
+      shell: bash
+      env:
+        CATALOG_PATH: ${{ inputs.path }}
+      run: labctl catalog validate "${CATALOG_PATH}"
