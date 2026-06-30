@@ -1,0 +1,84 @@
+# Default values for labctl-mcp.
+# A portable chart: homelab-specific bits (OnePasswordItem, redirect-lan ingress)
+# are opt-in via values, so the chart is reusable outside this homelab.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/jedwards1230/labctl
+  # tag defaults to .Chart.AppVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# MCP server invocation. These map to `labctl mcp` flags.
+mcp:
+  # Listen address passed to `labctl mcp --http`. Host omitted = all interfaces.
+  http: ":9000"
+  # HTTP path the streamable MCP handler is mounted at (informational; used for
+  # the readiness/liveness note and any ingress path).
+  path: /mcp
+  # --read-only: expose only read tools, skip every write command.
+  readOnly: false
+  # --service allowlist; empty list = all services. e.g. [radarr, sonarr, truenas]
+  services: []
+
+# Files rendered into LABCTL_CONFIG_DIR (/config) via a ConfigMap.
+# profileYaml is the per-environment binding (base_url + op:// secret refs);
+# service manifests themselves are embedded in the labctl binary.
+config:
+  configYaml: ""
+  profileYaml: ""
+
+# 1Password service-account token used by `op` to resolve op:// refs.
+# Pick exactly one source. existingSecret is the portable default; the homelab
+# instance sets onePasswordItem.itemPath to have the 1Password operator mint it.
+auth:
+  env: OP_SERVICE_ACCOUNT_TOKEN
+  existingSecret:
+    name: ""
+    key: token
+  onePasswordItem:
+    # Set itemPath to render a OnePasswordItem CRD (1Password operator).
+    # e.g. vaults/homelab/items/k8s-mcp-gateway-labctl
+    itemPath: ""
+    # Key within the synced secret holding the token value.
+    key: token
+
+service:
+  type: ClusterIP
+  port: 9000
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  annotations: {}
+  tls: false
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+podSecurityContext:
+  fsGroup: 100
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

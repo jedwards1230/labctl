@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "labctl-mcp.fullname" . }}
+  labels:
+    {{- include "labctl-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "labctl-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "labctl-mcp.selectorLabels" . | nindent 8 }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if or .Values.config.configYaml .Values.config.profileYaml }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: labctl-mcp
+          image: {{ include "labctl-mcp.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - mcp
+            - --http
+            - {{ .Values.mcp.http | quote }}
+            {{- if .Values.mcp.readOnly }}
+            - --read-only
+            {{- end }}
+            {{- range .Values.mcp.services }}
+            - --service
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          env:
+            {{- $secretName := include "labctl-mcp.secretName" . }}
+            {{- if $secretName }}
+            - name: {{ .Values.auth.env }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ include "labctl-mcp.secretKey" . }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: home
+              mountPath: /home/labctl
+            - name: tmp
+              mountPath: /tmp
+            {{- if or .Values.config.configYaml .Values.config.profileYaml }}
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if or .Values.config.configYaml .Values.config.profileYaml }}
+        - name: config
+          configMap:
+            name: {{ include "labctl-mcp.fullname" . }}-config
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

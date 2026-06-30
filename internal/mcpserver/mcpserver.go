@@ -1,7 +1,8 @@
-// Package mcpserver exposes loaded manifests as MCP tools over stdio. Each
-// non-ignored command in each service becomes one tool named
-// <service>_<command>. All tool calls dispatch through engine.Execute — the
-// same path as the CLI — so behaviour is identical from both faces.
+// Package mcpserver exposes loaded manifests as MCP tools over stdio or
+// streamable-HTTP. Each non-ignored command in each service becomes one tool
+// named <service>_<command>. All tool calls dispatch through engine.Execute —
+// the same path as the CLI — so behaviour is identical from both faces and from
+// both transports.
 package mcpserver
 
 import (

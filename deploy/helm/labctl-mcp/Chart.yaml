@@ -1,0 +1,18 @@
+apiVersion: v2
+name: labctl-mcp
+description: Deploy labctl's MCP server (streamable-HTTP) as a network-reachable service.
+type: application
+# version / appVersion are overwritten at publish time from the release tag
+# (`helm package --version $VER --app-version $VER`). The committed values are
+# placeholders so `helm template`/`helm lint` work locally.
+version: 0.0.0
+appVersion: "0.0.0"
+keywords:
+  - labctl
+  - mcp
+  - homelab
+home: https://github.com/jedwards1230/labctl
+sources:
+  - https://github.com/jedwards1230/labctl
+maintainers:
+  - name: jedwards1230
