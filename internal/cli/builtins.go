@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -192,6 +193,7 @@ func (r *runner) cmdMCP() *cobra.Command {
 	var readOnly bool
 	var services []string
 	var httpAddr string
+	var authTokenFile string
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "serve manifests as MCP tools over stdio or streamable-HTTP",
@@ -200,6 +202,11 @@ func (r *runner) cmdMCP() *cobra.Command {
 			"--http :9000 or --http 127.0.0.1:9000) to serve streamable-HTTP instead,\n" +
 			"with the MCP endpoint at /mcp and a GET /healthz liveness probe — suitable\n" +
 			"for in-cluster deployment behind an MCP gateway.\n\n" +
+			"Bearer-token auth on the /mcp endpoint (transport-layer access control):\n" +
+			"set LABCTL_MCP_AUTH_TOKEN or pass --auth-token-file <path> to require an\n" +
+			"\"Authorization: Bearer <token>\" header on every /mcp request. GET /healthz\n" +
+			"remains unauthenticated (liveness probe). Only meaningful with --http;\n" +
+			"stdio transport ignores this setting.\n\n" +
 			"--read-only omits write tools entirely; --service restricts the tool set\n" +
 			"to the named service(s). Both filters compose and apply to either transport.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -209,9 +216,25 @@ func (r *runner) cmdMCP() *cobra.Command {
 			if err := mcpserver.ValidateServices(r.loaded, services); err != nil {
 				return &usageError{err.Error()}
 			}
+			if authTokenFile != "" && httpAddr == "" {
+				return &usageError{"--auth-token-file has no effect without --http (bearer auth only applies to the streamable-HTTP transport)"}
+			}
 			opts := mcpserver.Options{ReadOnly: readOnly, Services: services}
 			if httpAddr != "" {
-				return mcpserver.ServeHTTP(cmd.Context(), httpAddr, r.loaded, r.config, Version, r.tracer, r.stderr, opts)
+				authToken, err := mcpserver.ResolveAuthToken(authTokenFile)
+				if err != nil {
+					// A bad --auth-token-file is operator misconfiguration → usage
+					// error (exit 2), matching ValidateServices above.
+					return &usageError{err.Error()}
+				}
+				return mcpserver.ServeHTTP(cmd.Context(), httpAddr, r.loaded, r.config, Version, r.tracer, r.stderr, opts, authToken)
+			}
+			// stdio transport: bearer auth does not apply. Warn (don't fail) if the
+			// token env var is set ambiently, so the operator isn't surprised the
+			// stdio endpoint is unauthenticated. Mirrors the hard --auth-token-file
+			// guard above, but env vars are often set ambiently so this only warns.
+			if os.Getenv(mcpserver.AuthTokenEnv) != "" && r.stderr != nil {
+				_, _ = fmt.Fprintf(r.stderr, "labctl mcp: warning: %s is set but has no effect over stdio (bearer auth only applies to --http)\n", mcpserver.AuthTokenEnv)
 			}
 			return mcpserver.Serve(cmd.Context(), r.loaded, r.config, Version, r.tracer, r.stderr, opts)
 		},
@@ -219,6 +242,7 @@ func (r *runner) cmdMCP() *cobra.Command {
 	cmd.Flags().BoolVar(&readOnly, "read-only", false, "expose only read tools; skip every write command")
 	cmd.Flags().StringSliceVar(&services, "service", nil, "restrict tools to these service(s); repeatable or comma-separated (default: all)")
 	cmd.Flags().StringVar(&httpAddr, "http", "", "serve streamable-HTTP MCP on this addr (e.g. :9000); default empty = stdio")
+	cmd.Flags().StringVar(&authTokenFile, "auth-token-file", "", "path to a file containing the bearer token that guards the /mcp endpoint; overrides "+mcpserver.AuthTokenEnv)
 	return cmd
 }
 

@@ -29,7 +29,7 @@ func TestHTTPHandlerRoundTrip(t *testing.T) {
 
 	loaded := buildTestLoaded(upstream.URL)
 	tracer := noop.NewTracerProvider().Tracer("test")
-	handler := mcpserver.NewHTTPHandler(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{})
+	handler := mcpserver.NewHTTPHandler(loaded, loaded.Config, "v9.9.9", tracer, nil, mcpserver.Options{}, "")
 
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
@@ -108,7 +108,7 @@ func TestServeHTTPLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- mcpserver.ServeHTTP(ctx, addr, loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{})
+		errCh <- mcpserver.ServeHTTP(ctx, addr, loaded, loaded.Config, "v0", tracer, nil, mcpserver.Options{}, "")
 	}()
 
 	// Wait for the listener to come up via /healthz.

@@ -25,6 +25,24 @@ mcp:
   readOnly: false
   # --service allowlist; empty list = all services. e.g. [radarr, sonarr, truenas]
   services: []
+  # Optional bearer-token auth on the /mcp endpoint. This is TRANSPORT-LAYER
+  # access control (who may reach the endpoint at all) — an app-layer boundary
+  # that complements networkPolicy, NOT per-tool policy gating. Default off =
+  # no app-layer auth (unchanged, backward compatible). When enabled the token
+  # is injected as the LABCTL_MCP_AUTH_TOKEN env var; callers must then send
+  # `Authorization: Bearer <token>`. GET /healthz always stays unauthenticated.
+  # Pick exactly one token source (existingSecret or onePasswordItem); enabling
+  # without a source is a hard render error (fail-closed).
+  auth:
+    enabled: false
+    existingSecret:
+      name: ""
+      key: token
+    onePasswordItem:
+      # Set itemPath to render a OnePasswordItem CRD (1Password operator) holding
+      # the bearer token. e.g. vaults/homelab/items/k8s-mcp-gateway-labctl-mcp-auth
+      itemPath: ""
+      key: token
 
 # Files rendered into LABCTL_CONFIG_DIR (/config) via a ConfigMap.
 # profileYaml is the per-environment binding (base_url + op:// secret refs);

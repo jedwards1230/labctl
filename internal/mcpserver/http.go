@@ -25,6 +25,14 @@ const (
 // GET /healthz liveness probe. The tool set is process-wide: every session
 // reuses the single prebuilt server. It reuses BuildServer, so the tool
 // registration (and thus behaviour) is identical to the stdio transport.
+//
+// authToken is transport-layer access control: when non-empty, the /mcp
+// handler is wrapped with a bearer-token middleware that requires an
+// "Authorization: Bearer <token>" header (401 on missing/invalid). This is
+// endpoint-access gating, not per-tool policy — it controls who can reach the
+// HTTP transport at all. GET /healthz is always unauthenticated regardless of
+// authToken (it is a liveness/readiness probe, not a data endpoint). When
+// authToken is "", auth is disabled and behaviour is unchanged.
 func NewHTTPHandler(
 	loaded *manifest.Loaded,
 	cfg manifest.Config,
@@ -32,18 +40,25 @@ func NewHTTPHandler(
 	tracer trace.Tracer,
 	stderr io.Writer,
 	opts Options,
+	authToken string,
 ) http.Handler {
 	srv := BuildServer(loaded, cfg, version, tracer, stderr, opts)
 
 	// getServer returns the single prebuilt server for every session — the tool
 	// set is process-wide, not per-request.
-	handler := mcp.NewStreamableHTTPHandler(
+	var mcpHandler http.Handler = mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return srv },
 		nil,
 	)
 
+	// Wrap /mcp with bearer-token middleware when a token is configured.
+	// /healthz is always left open — it is a probe endpoint, not a data surface.
+	if authToken != "" {
+		mcpHandler = bearerAuthMiddleware(authToken, mcpHandler)
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle(mcpPath, handler)
+	mux.Handle(mcpPath, mcpHandler)
 	mux.HandleFunc("GET "+healthPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ok\n")
@@ -84,6 +99,9 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 // transport on addr, blocking until ctx is cancelled. The MCP endpoint is
 // mounted at /mcp and a GET /healthz liveness probe at /healthz. On ctx
 // cancellation it shuts the server down gracefully with a short timeout.
+//
+// authToken is the bearer token for transport-layer access control on the /mcp
+// endpoint; see NewHTTPHandler for the full contract. Pass "" to disable auth.
 func ServeHTTP(
 	ctx context.Context,
 	addr string,
@@ -93,12 +111,17 @@ func ServeHTTP(
 	tracer trace.Tracer,
 	stderr io.Writer,
 	opts Options,
+	authToken string,
 ) error {
-	httpSrv := newHTTPServer(addr, NewHTTPHandler(loaded, cfg, version, tracer, stderr, opts))
+	httpSrv := newHTTPServer(addr, NewHTTPHandler(loaded, cfg, version, tracer, stderr, opts, authToken))
 
 	if stderr != nil {
-		_, _ = fmt.Fprintf(stderr, "labctl mcp: serving streamable-HTTP on %s (MCP at %s, health at %s)\n",
-			addr, mcpPath, healthPath)
+		authStatus := "auth: disabled"
+		if authToken != "" {
+			authStatus = "auth: enabled (bearer)"
+		}
+		_, _ = fmt.Fprintf(stderr, "labctl mcp: serving streamable-HTTP on %s (MCP at %s, health at %s, %s)\n",
+			addr, mcpPath, healthPath, authStatus)
 	}
 
 	errCh := make(chan error, 1)
