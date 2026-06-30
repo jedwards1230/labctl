@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/pb33f/libopenapi"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 )
 
 // specCacheTTL is the freshness window for a cached remote spec. A cached spec
@@ -213,8 +214,15 @@ type specOp struct {
 	Tags        []string
 }
 
-// parseOperations builds a slice of specOp from the raw spec bytes (OpenAPI 3.x only).
-func parseOperations(raw []byte) ([]specOp, error) {
+// buildV3Document parses raw OpenAPI document bytes into the libopenapi
+// high-level v3 Document model, rejecting Swagger 2.0. Shared by parseOperations
+// (commands inference, spec:) and GenerateManifestFromSpec/InferServiceName
+// (openapi_scaffold.go, `catalog add --openapi`) — both need the parsed
+// document, just different parts of it (paths vs. info/components/security), so
+// the parse+swagger-reject+build-model plumbing lives in exactly one place. A
+// nil, nil return means the document parsed but produced no model (valid but
+// empty input) — callers treat that as "nothing to extract", not an error.
+func buildV3Document(raw []byte) (*v3.Document, error) {
 	doc, err := libopenapi.NewDocument(raw)
 	if err != nil {
 		// Unparseable document bytes → decode (exit 6).
@@ -225,7 +233,7 @@ func parseOperations(raw []byte) ([]specOp, error) {
 	// (the manifest points at an unsupported spec format), not a decode failure.
 	ver := doc.GetSpecInfo().SpecType
 	if ver == "swagger" {
-		return nil, &ConfigError{Err: fmt.Errorf("swagger 2.0 is not supported; spec: requires OpenAPI 3.x")}
+		return nil, &ConfigError{Err: fmt.Errorf("swagger 2.0 is not supported; OpenAPI 3.x is required")}
 	}
 
 	model, err := doc.BuildV3Model()
@@ -233,12 +241,33 @@ func parseOperations(raw []byte) ([]specOp, error) {
 		// A well-formed document that fails to build a v3 model → decode (exit 6).
 		return nil, &DecodeError{Err: fmt.Errorf("build model: %w", err)}
 	}
-	if model == nil || model.Model.Paths == nil || model.Model.Paths.PathItems == nil {
-		return nil, nil // empty spec is valid
+	if model == nil {
+		return nil, nil
+	}
+	return &model.Model, nil
+}
+
+// parseOperations builds a slice of specOp from the raw spec bytes (OpenAPI 3.x only).
+func parseOperations(raw []byte) ([]specOp, error) {
+	doc, err := buildV3Document(raw)
+	if err != nil {
+		return nil, err
+	}
+	return operationsFromDoc(doc), nil
+}
+
+// operationsFromDoc extracts specOps from an already-parsed v3 document — the
+// doc-driven half of parseOperations, factored out so a caller that already
+// holds a built document (GenerateManifestFromSpec) can reuse it instead of
+// re-parsing the same bytes. doc may be nil (an empty/valid spec with no
+// model), which yields no operations.
+func operationsFromDoc(doc *v3.Document) []specOp {
+	if doc == nil || doc.Paths == nil || doc.Paths.PathItems == nil {
+		return nil // empty spec is valid
 	}
 
 	var ops []specOp
-	for pair := model.Model.Paths.PathItems.First(); pair != nil; pair = pair.Next() {
+	for pair := doc.Paths.PathItems.First(); pair != nil; pair = pair.Next() {
 		path := pair.Key()
 		item := pair.Value()
 		if item == nil {
@@ -265,7 +294,7 @@ func parseOperations(raw []byte) ([]specOp, error) {
 			ops = append(ops, so)
 		}
 	}
-	return ops, nil
+	return ops
 }
 
 // buildCommands converts specOps into Command entries, applying SpecFilter.

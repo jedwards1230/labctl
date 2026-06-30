@@ -146,9 +146,23 @@ func uiMeta(write bool) mcp.Meta {
 	return mcp.Meta{"ui": map[string]any{"resourceUri": resultResourceURI}}
 }
 
-// toolName returns the MCP tool name for a service+command pair.
-func toolName(svcName, cmdID string) string {
-	return svcName + "_" + cmdID
+// toolName returns the MCP tool name for a tool-name prefix + command pair. The
+// prefix is normally the service name, except for a service reached only via a
+// qualified "<catalog>:<service>" selector, where it is that selector with ':'
+// sanitized to '-' (see selectorToolPrefix) — MCP tool names must not contain ':'.
+func toolName(prefix, cmdID string) string {
+	return prefix + "_" + cmdID
+}
+
+// selectorToolPrefix derives a valid MCP tool-name prefix from a Loaded
+// selector. A bare selector (no installed-catalog qualification, or the sole
+// definer's unqualified form) passes through unchanged, so an unambiguous
+// service's tool names are byte-identical to before this selector mechanism
+// existed. A qualified "<catalog>:<service>" selector — the only way to reach a
+// service whose bare name collides across installed catalogs — has its ':'
+// replaced with '-', since MCP tool names must not contain ':'.
+func selectorToolPrefix(selector string) string {
+	return strings.ReplaceAll(selector, ":", "-")
 }
 
 // toolDesc builds the tool description, appending [WRITE] when the command
@@ -243,13 +257,22 @@ type Options struct {
 	Services []string
 }
 
-// allowed reports whether a service name passes the Options.Services allowlist.
-func (o Options) allowed(svcName string) bool {
+// allowed reports whether a service (registered under selector, a CanonicalNames
+// entry) passes the Options.Services allowlist. A requested name matches either
+// by an exact selector match, or — for a sole-definer installed-catalog service,
+// where CanonicalNames yields only the bare selector — by resolving the
+// requested name through loaded.Services and comparing the *Service pointer, so
+// `--service <catalog>:<service>` still works even though that qualified form
+// was deduplicated out of the iteration selector.
+func (o Options) allowed(loaded *manifest.Loaded, selector string, svc *manifest.Service) bool {
 	if len(o.Services) == 0 {
 		return true
 	}
 	for _, s := range o.Services {
-		if s == svcName {
+		if s == selector {
+			return true
+		}
+		if candidate, ok := loaded.Services[s]; ok && candidate == svc {
 			return true
 		}
 	}
@@ -299,12 +322,20 @@ func BuildServer(
 	// manifest command).
 	registered := make(map[string]bool)
 
-	for _, svcName := range loaded.SortedServiceNames() {
-		if !opts.allowed(svcName) {
+	// CanonicalNames (not the raw selector keys) so a sole-definer installed
+	// catalog's redundant qualified alias is visited once, not twice.
+	for _, selector := range loaded.CanonicalNames() {
+		svc := loaded.Services[selector]
+		if !opts.allowed(loaded, selector, svc) {
 			continue
 		}
-		svc := loaded.Services[svcName]
 		cmds := command.FromManifest(svc)
+		// The tool-name prefix is the selector with ':' sanitized to '-', so a
+		// service reached only via a qualified "<catalog>:<service>" name (a
+		// genuine cross-catalog collision) gets a distinct, valid MCP tool name;
+		// a non-colliding service's prefix equals svc.Name, unchanged from before
+		// this selector mechanism existed.
+		prefix := selectorToolPrefix(selector)
 
 		for _, id := range command.SortedIDs(cmds) {
 			c := cmds[id]
@@ -315,16 +346,24 @@ func BuildServer(
 				continue
 			}
 
+			capturedName := toolName(prefix, id)
+			// A sanitized selector prefix (e.g. "cat1:foo" -> "cat1-foo") can
+			// collide with a literal service's tool name ("cat1-foo_foo"); the
+			// first registration wins rather than silently overwriting it,
+			// mirroring registerVerbTools' identical guard below.
+			if registered[capturedName] {
+				continue
+			}
+
 			// Capture loop variables for the closure.
 			capturedSvc := svc
 			capturedCmd := c
-			capturedName := toolName(svcName, id)
 
 			tool := &mcp.Tool{
 				Name:        capturedName,
 				Description: toolDesc(c),
 				InputSchema: buildSchema(c),
-				Annotations: buildAnnotations(svcName, id, c),
+				Annotations: buildAnnotations(svc.Name, id, c),
 			}
 			if m := uiMeta(c.Write); m != nil {
 				tool.Meta = m
@@ -341,7 +380,7 @@ func BuildServer(
 
 		// Generic verbs: expose labctl's write capability (and the jsonrpc
 		// `call`) as per-service MCP tools, mirroring the CLI's verb dispatch.
-		registerVerbTools(srv, svc, cmds, opts, cfg, tracer, stderr, registered)
+		registerVerbTools(srv, svc, prefix, cmds, opts, cfg, tracer, stderr, registered)
 	}
 
 	return srv
@@ -353,8 +392,10 @@ func BuildServer(
 var verbToolOrder = []string{"get", "post", "put", "patch", "delete"}
 
 // registerVerbTools adds the generic passthrough verbs for one service as MCP
-// tools: <svc>_get/_post/_put/_patch/_delete for http transports, or <svc>_call
-// for jsonrpc-ws. It mirrors the CLI's verb registration:
+// tools: <prefix>_get/_post/_put/_patch/_delete for http transports, or
+// <prefix>_call for jsonrpc-ws — prefix is the sanitized selector tool-name
+// prefix from BuildServer's loop (svc.Name for a non-colliding service). It
+// mirrors the CLI's verb registration:
 //
 //   - A manifest command whose id equals the verb name wins (the generic tool is
 //     skipped), matching the CLI's `if _, taken := cmds[verb]` guard.
@@ -364,6 +405,7 @@ var verbToolOrder = []string{"get", "post", "put", "patch", "delete"}
 func registerVerbTools(
 	srv *mcp.Server,
 	svc *manifest.Service,
+	prefix string,
 	cmds map[string]*command.Command,
 	opts Options,
 	cfg manifest.Config,
@@ -379,7 +421,7 @@ func registerVerbTools(
 		if opts.ReadOnly && write {
 			return
 		}
-		name := toolName(svc.Name, verb)
+		name := toolName(prefix, verb)
 		if registered[name] {
 			return
 		}

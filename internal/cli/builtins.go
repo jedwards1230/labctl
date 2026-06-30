@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -48,7 +49,7 @@ func (r *runner) listServices(loaded *manifest.Loaded, loadErr error) error {
 		_, _ = fmt.Fprintf(r.stdout, "No services configured. Add manifests under %s/services/\n", manifest.ConfigDir())
 		return nil
 	}
-	for _, name := range loaded.SortedServiceNames() {
+	for _, name := range loaded.CanonicalNames() {
 		svc := loaded.Services[name]
 		origin := string(loaded.OriginOf(name))
 		if svc.Description != "" {
@@ -99,14 +100,24 @@ func (r *runner) cmdLint(loaded *manifest.Loaded, loadErr error) *cobra.Command 
 			if loaded == nil {
 				return fmt.Errorf("no manifests loaded")
 			}
-			names := loaded.SortedServiceNames()
+			// A single selector argument resolves through Lookup, so a qualified
+			// "<catalog>:<service>" name works and an ambiguous bare name reports
+			// the helpful "qualify it" diagnostic instead of a misleading
+			// "unknown service".
 			if len(args) == 1 {
-				if _, ok := loaded.Services[args[0]]; !ok {
-					return &usageError{fmt.Sprintf("unknown service %q", args[0])}
+				svc, err := loaded.Lookup(args[0])
+				if err != nil {
+					return err
 				}
-				names = []string{args[0]}
+				if strict {
+					if err := manifest.ValidateComplete(svc); err != nil {
+						return fmt.Errorf("%s: %w", args[0], err)
+					}
+				}
+				_, _ = fmt.Fprintf(r.stdout, "ok %s\n", args[0])
+				return nil
 			}
-			for _, name := range names {
+			for _, name := range loaded.CanonicalNames() {
 				// Structural validation already ran on the RAW manifest during Load
 				// (loadService → Validate), which aborts the whole load on failure —
 				// so a service present in `loaded` is structurally valid. Re-running
@@ -137,26 +148,35 @@ func (r *runner) cmdDoctor(loaded *manifest.Loaded) *cobra.Command {
 			if loaded == nil || len(loaded.Services) == 0 {
 				return fmt.Errorf("no services configured")
 			}
-			names := loaded.SortedServiceNames()
+			// A single selector argument resolves through Lookup, so a qualified
+			// "<catalog>:<service>" name works and an ambiguous bare name reports
+			// the helpful "qualify it" diagnostic instead of a misleading
+			// "unknown service".
 			if len(args) == 1 {
-				if _, ok := loaded.Services[args[0]]; !ok {
-					return &usageError{fmt.Sprintf("unknown service %q", args[0])}
+				svc, err := loaded.Lookup(args[0])
+				if err != nil {
+					return err
 				}
-				names = []string{args[0]}
+				probeOne(r.stdout, args[0], svc)
+				return nil
 			}
-			for _, name := range names {
-				svc := loaded.Services[name]
-				// An incomplete (portable-but-unbound) service can't be meaningfully
-				// probed — report why and move on rather than probing an empty base.
-				if err := manifest.ValidateComplete(svc); err != nil {
-					_, _ = fmt.Fprintf(r.stdout, "%-14s incomplete: %s\n", name, err)
-					continue
-				}
-				_, _ = fmt.Fprintf(r.stdout, "%-14s %s\n", name, probe(svc))
+			for _, name := range loaded.CanonicalNames() {
+				probeOne(r.stdout, name, loaded.Services[name])
 			}
 			return nil
 		},
 	}
+}
+
+// probeOne writes one doctor result line for a resolved service, reporting
+// incompleteness instead of probing an empty base. Shared by the all-services
+// and single-selector paths of `doctor`.
+func probeOne(w io.Writer, name string, svc *manifest.Service) {
+	if err := manifest.ValidateComplete(svc); err != nil {
+		_, _ = fmt.Fprintf(w, "%-14s incomplete: %s\n", name, err)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%-14s %s\n", name, probe(svc))
 }
 
 // probe does a cheap, unauthenticated reachability check of base_url. It reports

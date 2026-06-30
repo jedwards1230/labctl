@@ -35,31 +35,47 @@ var gitRefPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
 func (r *runner) cmdCatalogAdd() *cobra.Command {
 	var name, ref string
-	var force bool
+	var force, openapi bool
 	cmd := &cobra.Command{
-		Use:   "add <source> [--name <name>] [--ref <ref>] [--force]",
-		Short: "install a named catalog of portable manifests from a dir or git URL",
+		Use:   "add <source> [--name <name>] [--ref <ref>] [--force] [--openapi]",
+		Short: "install a named catalog of portable manifests from a dir, git URL, or OpenAPI document",
 		Long: "Install a named catalog of portable manifests under\n" +
-			"<config-dir>/catalogs/<name>/. <source> is either an existing local directory\n" +
-			"or a git URL (https/http/ssh/git/file:// or scp-style user@host:path).\n\n" +
-			"Every top-level *.yaml/*.yml in the source is validated to be a PORTABLE\n" +
+			"<config-dir>/catalogs/<name>/. <source> is either an existing local directory,\n" +
+			"a git URL (https/http/ssh/git/file:// or scp-style user@host:path), or — with\n" +
+			"--openapi — an OpenAPI 3.x document (an http(s):// URL or a local file).\n\n" +
+			"Every top-level *.yaml/*.yml in a dir/git source is validated to be a PORTABLE\n" +
 			"manifest — no base_url, no secret ref — before anything is written; one bad\n" +
 			"manifest rejects the whole add. A git source is pinned to the resolved commit\n" +
 			"SHA, so an installed catalog is a reproducible, inert bundle until profile.yaml\n" +
 			"binds it.\n\n" +
+			"--openapi materializes a single-service portable manifest from the document:\n" +
+			"its operations become commands: and its security schemes are inferred into an\n" +
+			"auth: block on a best-effort basis (anything that can't be faithfully mapped\n" +
+			"falls back to `auth: { strategy: none }` with a comment explaining what to wire\n" +
+			"by hand). The spec is parsed once at add-time; it is NOT vendored and no spec:\n" +
+			"reference is kept — the installed manifest stands alone. --ref does not apply\n" +
+			"to an --openapi source (it is git-only).\n\n" +
 			"The catalog name defaults to the dir/repo basename (a trailing .git is\n" +
-			"stripped); pass --name to override, or if the inferred name is not a valid\n" +
-			"single path segment. --ref selects a git branch/tag/commit. --force replaces\n" +
-			"an already-installed catalog of the same name.",
+			"stripped) — or, with --openapi, the document's info.title, slugified. Pass\n" +
+			"--name to override, or if the inferred name is not a valid single path segment.\n" +
+			"--ref selects a git branch/tag/commit. --force replaces an already-installed\n" +
+			"catalog of the same name.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r.curCommand = "catalog"
+			if openapi {
+				if ref != "" {
+					return &usageError{"--ref is git-only and cannot be combined with --openapi"}
+				}
+				return r.catalogAddOpenAPI(args[0], name, force)
+			}
 			return r.catalogAdd(args[0], name, ref, force)
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "catalog name (default: dir/repo basename)")
+	cmd.Flags().StringVar(&name, "name", "", "catalog name (default: dir/repo basename, or the OpenAPI document's title with --openapi)")
 	cmd.Flags().StringVar(&ref, "ref", "", "git branch, tag, or commit to check out (git sources only)")
 	cmd.Flags().BoolVar(&force, "force", false, "replace an already-installed catalog of the same name")
+	cmd.Flags().BoolVar(&openapi, "openapi", false, "treat <source> as an OpenAPI 3.x document (http(s):// URL or local file) and materialize a manifest from it")
 	return cmd
 }
 
@@ -214,6 +230,11 @@ func (r *runner) updateOne(configDir, name string) error {
 	// The install directory is the source of truth for the name — a hand-edited
 	// lock file must not retarget the install to a different catalog.
 	meta.Name = name
+	meta.UpdatedAt = time.Now().UTC()
+
+	if meta.Type == "openapi" {
+		return r.updateOneOpenAPI(configDir, meta)
+	}
 
 	tmp, err := os.MkdirTemp("", "labctl-catalog-fetch-")
 	if err != nil {
@@ -221,7 +242,6 @@ func (r *runner) updateOne(configDir, name string) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	meta.UpdatedAt = time.Now().UTC()
 	fetchDir := meta.Source
 	switch meta.Type {
 	case "dir":
@@ -245,6 +265,35 @@ func (r *runner) updateOne(configDir, name string) error {
 		return err
 	}
 	_, _ = fmt.Fprintf(r.stderr, "updated catalog %q (%s) from %s%s\n", name, countManifests(len(files)), meta.Source, commitSuffix(meta.Commit))
+	return nil
+}
+
+// updateOneOpenAPI re-runs the same pipeline `catalog add --openapi` uses
+// (fetch source → GenerateManifestFromSpec → ValidatePortableManifest) against
+// meta.Source, re-installing the result as meta.Name.yaml. This keeps an
+// openapi-sourced catalog symmetric with dir/git: re-fetch, re-validate
+// fail-closed, re-install — picking up any upstream spec change. A
+// local-file source that has since moved simply errors here (the fetch
+// error), the same as a git remote going away.
+func (r *runner) updateOneOpenAPI(configDir string, meta manifest.CatalogMeta) error {
+	specBytes, err := fetchOpenAPISource(meta.Source)
+	if err != nil {
+		return err
+	}
+	data, err := manifest.GenerateManifestFromSpec(meta.Name, specBytes)
+	if err != nil {
+		return err
+	}
+	// GenerateManifestFromSpec already validates its own output; call the
+	// install-time gate explicitly too, mirroring catalogAddOpenAPI.
+	if _, err := manifest.ValidatePortableManifest(data); err != nil {
+		return err
+	}
+	files := map[string][]byte{meta.Name + ".yaml": data}
+	if err := manifest.InstallCatalog(configDir, meta, files, true); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(r.stderr, "updated catalog %q (1 manifest) from OpenAPI document %s\n", meta.Name, meta.Source)
 	return nil
 }
 
@@ -282,20 +331,20 @@ func (r *runner) catalogInstalled() error {
 }
 
 // collectAndValidate enumerates top-level *.yaml/*.yml in fetchDir, validates each
-// as a portable manifest (fail-closed), rejects a duplicate service name within
-// the source, and pre-checks for a service-name collision against OTHER installed
-// catalogs. It returns the files keyed by base filename, ready for InstallCatalog.
-func (r *runner) collectAndValidate(fetchDir, source, name string) (map[string][]byte, error) {
-	entries, err := os.ReadDir(fetchDir)
+// as a portable manifest (fail-closed), and rejects a duplicate service name
+// within the source. It returns the files keyed by base filename, ready for
+// InstallCatalog. A service name already defined by ANOTHER installed catalog is
+// allowed — both stay addressable via their qualified "<catalog>:<service>"
+// selector; the bare name becomes ambiguous (see manifest.Loaded.Ambiguous) and
+// is resolved at load/lookup time, not blocked here.
+func (r *runner) collectAndValidate(fetchDir, source, _ string) (map[string][]byte, error) {
+	entries, err := yamlEntriesIn(fetchDir)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", source, err)
 	}
 	files := map[string][]byte{}
 	svcToFile := map[string]string{} // service name → filename, within this source
 	for _, e := range entries {
-		if e.IsDir() || !isYAMLFile(e.Name()) {
-			continue
-		}
 		path := filepath.Join(fetchDir, e.Name())
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -316,16 +365,6 @@ func (r *runner) collectAndValidate(fetchDir, source, name string) (map[string][
 	}
 	if len(files) == 0 {
 		return nil, &usageError{fmt.Sprintf("no manifests (*.yaml) found in %s", source)}
-	}
-	// Cross-catalog collision pre-check (exclude self so a re-add/update is fine).
-	existing, err := manifest.InstalledCatalogServiceNames(r.configDir(), name)
-	if err != nil {
-		return nil, err
-	}
-	for svc := range svcToFile {
-		if cat, ok := existing[svc]; ok {
-			return nil, &usageError{fmt.Sprintf("service %q is already defined by installed catalog %q; remove it or rename", svc, cat)}
-		}
 	}
 	return files, nil
 }

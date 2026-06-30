@@ -71,3 +71,39 @@ jobs:
             echo "|-------|--------|"
             echo "| Tests | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Dogfoods .github/actions/validate-catalog against examples/catalog/ — the
+  # reference catalog a third-party catalog repo copies. A SEPARATE job (not a
+  # step in Test & Lint above) so a hiccup fetching this exact commit via `go
+  # install` (network-dependent, unlike the rest of CI) can never block the
+  # required Test & Lint check.
+  validate-catalog-action:
+    name: Dogfood validate-catalog action
+    runs-on: ubuntu-latest
+    # go install of an as-yet-unreleased PR commit: fetch straight from the git
+    # remote (the module proxy may not have it) and skip the checksum DB (no
+    # entry exists for an untagged commit).
+    env:
+      GOPROXY: direct
+      GOSUMDB: "off"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Validate examples/catalog with the validate-catalog action
+        uses: ./.github/actions/validate-catalog
+        with:
+          path: examples/catalog
+          # github.sha is the PR *merge* commit (refs/pull/N/merge), which is not
+          # a fetchable revision; use the real branch head so go install resolves.
+          version: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Validate-catalog action"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            echo "| examples/catalog | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

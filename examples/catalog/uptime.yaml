@@ -1,0 +1,18 @@
+name: uptime
+description: example no-auth service — a public status/uptime endpoint
+env_prefix: UPTIME
+
+auth:
+  strategy: none
+
+commands:
+  status:
+    help: current service status
+    method: GET
+    path: /status
+    output: { filter: "{status,version}" }
+  incidents:
+    help: list recent incidents
+    method: GET
+    path: /incidents
+    output: { filter: "map({id,title,status,created_at})" }

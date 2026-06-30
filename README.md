@@ -106,7 +106,9 @@ labctl catalog show radarr            # dump an embedded manifest to stdout
 labctl catalog edit radarr            # seed it into services/ for live editing (no rebuild)
 labctl catalog vendor radarr --catalog-dir ./catalog   # promote an edited override into a repo checkout
 labctl catalog add ./my-manifests     # install a named catalog (dir or git source)
+labctl catalog add ./openapi.json --openapi   # materialize a manifest from an OpenAPI 3.x document
 labctl catalog installed              # list installed named catalogs
+labctl catalog validate ./my-manifests   # read-only: check a dir's manifests against the same gate (no install)
 labctl svc                            # same list as `list`, under the svc namespace
 labctl svc tdarr get /api/v2/status   # generic verb passthrough
 labctl svc tdarr status               # a named command, if the manifest defines one
@@ -166,17 +168,39 @@ directory or a git repo — into `<config-dir>/catalogs/<name>/`:
 labctl catalog add ./my-manifests                       # install a local dir as a catalog (name = dir basename)
 labctl catalog add https://git.example/team/labctl-catalog.git   # …or a git repo (name = repo basename)
 labctl catalog add git@host:team/cat.git --name team --ref v1.2  # scp-style remote, pinned to a ref
+labctl catalog add https://api.example.com/openapi.json --openapi   # …or materialize a manifest from an OpenAPI 3.x document
 labctl catalog installed                                # list installed catalogs (name, type, commit/ref, source)
 labctl catalog update [name]                            # re-fetch one (or all) from the recorded source
 labctl catalog remove <name>                            # uninstall a catalog
 ```
 
+`--openapi` treats `<source>` (an `http(s)://` URL or a local file) as an
+OpenAPI 3.x document: its operations become `commands:`, and each
+`securitySchemes` entry is inferred into an `auth:` block on a best-effort
+basis — anything that can't be faithfully mapped (e.g. OAuth2 flows) falls back
+to `auth: { strategy: none }` with a comment explaining what to wire by hand.
+The spec is parsed once at add-time and **not** vendored — no `spec:` reference
+is kept, so the installed manifest stands alone and stays portable. `--ref`
+doesn't apply to an `--openapi` source (it's git-only); the catalog name
+defaults to the document's `info.title`, slugified.
+
 **Resolution precedence (highest wins):** a local `services/<name>.yaml`  >  an
 installed catalog  >  the embedded catalog. `labctl list` marks an
 installed-catalog service `catalog:<name>`; a local file shadowing one shows as
-`override`, and the embedded floor stays `embedded`. Two installed catalogs that
-define the same service name is a hard error at load (fail-closed) that names both
-— remove one.
+`override`, and the embedded floor stays `embedded`.
+
+**Two installed catalogs may define the same service name.** Unlike a local
+override, this is no longer a hard load error — both install, and each stays
+addressable via its qualified `<catalog>:<service>` selector
+(`labctl svc <catalog>:<service> <command>`). The *bare* name becomes ambiguous:
+`labctl svc <name>` (and `lint`/`doctor <name>`) error and list both qualified
+forms instead of silently picking one. **This means installing a second catalog
+that collides with an existing service name renames the first catalog's MCP
+tools** — once ambiguous, the MCP server can only expose the qualified form
+(`<catalog>-<service>_<command>`, since a bare tool name would also be
+ambiguous there), so any agent/automation pinned to the old unqualified tool
+name needs updating. Worth checking `labctl list` after adding a catalog if you
+run the MCP server.
 
 **Security framing.** A catalog manifest carries **no endpoints or credentials**:
 `catalog add` validates every `*.yaml` against the manifest schema *and* the
@@ -193,6 +217,40 @@ single argument after `--`, never a shell.)
 Installing a catalog only makes more manifests *available* — there is no
 execution-time policy gating; labctl stays an [unopinionated
 executor](#how-it-works).
+
+### Publishing a community catalog
+
+Any git repo (or directory) of portable manifests is a valid `catalog add`
+source — there's no registry or signing step. To check your manifests against
+labctl's contract before anyone installs them:
+
+```sh
+labctl catalog validate ./my-manifests   # read-only: schema + portability + duplicate-name check, no install
+```
+
+It's the exact fail-closed gate `catalog add` runs (`manifest.ValidatePortableManifest`),
+exposed standalone with no config dir, network call, or install side effect —
+prints one `ok <file>` / `FAIL <file>: <reason>` line per manifest and exits 2
+if any fail. Wire it into your catalog repo's own CI with the bundled composite
+action:
+
+```yaml
+# .github/workflows/validate.yml in YOUR catalog repo
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jedwards1230/labctl/.github/actions/validate-catalog@v1
+        with:
+          path: .   # the dir holding your *.yaml manifests
+```
+
+[`examples/catalog/`](examples/catalog/) is a minimal reference catalog (one
+no-auth service, one header-key service) that passes `catalog validate` and
+demonstrates the shape — see its [README](examples/catalog/README.md) for the
+authoring/publishing walkthrough.
 
 ### Portable manifests & profiles
 
@@ -371,8 +429,14 @@ Shipped: `http` and `jsonrpc-ws` transports; `none`/`header-key`/`bearer`/`basic
 (1Password today, with optional service-account-token injection) and env
 override; OpenAPI inference (`spec:`); composed `steps:` pipelines; an embedded
 catalog of 15 portable manifests plus installable named catalogs (`catalog
-add/update/remove/installed`; precedence local `services/` > installed catalogs >
-embedded); optional OpenTelemetry tracing; an MCP Apps result View
+add/update/remove/installed/validate`; `catalog add --openapi` materializes a
+manifest from an OpenAPI 3.x document; precedence local `services/` > installed
+catalogs > embedded, with two installed catalogs free to share a service name —
+resolved via the `<catalog>:<service>` selector, a bare colliding name errors
+and lists both qualified forms); a `validate-catalog` composite GitHub Action
+(`.github/actions/validate-catalog`) and a reference catalog
+([`examples/catalog/`](examples/catalog/)) for third-party catalog authors;
+optional OpenTelemetry tracing; an MCP Apps result View
 (`ui://labctl/result`) for every read tool, with an optional per-command `ui:`
 hint block (Phase 1+2 — read tools only; a write-confirmation View is planned).
 

@@ -63,6 +63,7 @@ func (r *runner) cmdCatalog() *cobra.Command {
 	cmd.AddCommand(r.cmdCatalogUpdate())
 	cmd.AddCommand(r.cmdCatalogRemove())
 	cmd.AddCommand(r.cmdCatalogInstalled())
+	cmd.AddCommand(r.cmdCatalogValidate())
 	return cmd
 }
 

@@ -1,0 +1,25 @@
+name: inventory
+description: example header-key service — an inventory/warehouse API
+env_prefix: INVENTORY
+
+auth:
+  strategy: header-key
+  header: X-Api-Key
+  value: "{secret.api_key}"
+
+secrets:
+  api_key:
+    # slot declared here; the value is bound in the CONSUMER's profile.yaml
+    # (or via the INVENTORY_API_KEY env override) — never in this manifest.
+    env: INVENTORY_API_KEY
+
+commands:
+  items:
+    help: list inventory items
+    method: GET
+    path: /items
+    output: { filter: "map({sku,name,quantity})" }
+  item:
+    help: get one item by SKU
+    method: GET
+    path: "/items/{arg.0}"

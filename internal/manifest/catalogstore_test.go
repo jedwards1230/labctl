@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -131,20 +132,140 @@ func TestLocalOverridesInstalledCatalog(t *testing.T) {
 	}
 }
 
-// TestCrossCatalogCollisionFailsLoad: two installed catalogs defining the same
-// service name is a hard error at load, naming both catalogs.
-func TestCrossCatalogCollisionFailsLoad(t *testing.T) {
+// TestCrossCatalogCollisionIsAmbiguousNotFatal: two installed catalogs defining
+// the same service name no longer fails Load. Each is addressable via its
+// qualified "<catalog>:<service>" selector; the bare name resolves to neither
+// (recorded in Ambiguous) and Lookup on it is a *ConfigError naming both
+// qualified forms.
+func TestCrossCatalogCollisionIsAmbiguousNotFatal(t *testing.T) {
 	dir := t.TempDir()
 	installDirCatalog(t, dir, "acat", map[string]string{"widget.yaml": portableManifest("widget")})
 	installDirCatalog(t, dir, "bcat", map[string]string{"widget.yaml": portableManifest("widget")})
 
-	_, err := Load(dir)
-	if err == nil {
-		t.Fatal("expected a cross-catalog collision error")
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v (a cross-catalog collision is no longer a hard load error)", err)
 	}
-	msg := err.Error()
-	if !strings.Contains(msg, "acat") || !strings.Contains(msg, "bcat") {
-		t.Errorf("collision error %q must name both catalogs (acat, bcat)", msg)
+
+	if _, ok := loaded.Services["widget"]; ok {
+		t.Error("ambiguous bare name 'widget' must not resolve in Services")
+	}
+	if got := loaded.Ambiguous["widget"]; len(got) != 2 || got[0] != "acat" || got[1] != "bcat" {
+		t.Errorf("Ambiguous[widget] = %v, want [acat bcat]", got)
+	}
+
+	for _, sel := range []string{"acat:widget", "bcat:widget"} {
+		svc, ok := loaded.Services[sel]
+		if !ok {
+			t.Fatalf("qualified selector %q did not load", sel)
+		}
+		cat := strings.TrimSuffix(sel, ":widget")
+		if got := loaded.OriginOf(sel); got != catalogOrigin(cat) {
+			t.Errorf("%s origin = %q, want %q", sel, got, catalogOrigin(cat))
+		}
+		if svc.Name != "widget" {
+			t.Errorf("%s service Name = %q, want widget", sel, svc.Name)
+		}
+	}
+
+	_, lookupErr := loaded.Lookup("widget")
+	if lookupErr == nil {
+		t.Fatal("Lookup(widget) should error on an ambiguous bare name")
+	}
+	var cfgErr *ConfigError
+	if !errors.As(lookupErr, &cfgErr) {
+		t.Errorf("Lookup(widget) error should be a *ConfigError (exit 2), got %T: %v", lookupErr, lookupErr)
+	}
+	msg := lookupErr.Error()
+	if !strings.Contains(msg, "acat:widget") || !strings.Contains(msg, "bcat:widget") {
+		t.Errorf("ambiguity error %q must list both qualified forms", msg)
+	}
+
+	if svc, err := loaded.Lookup("acat:widget"); err != nil || svc == nil {
+		t.Errorf("Lookup(acat:widget) = %v, %v, want a resolved service", svc, err)
+	}
+
+	// CanonicalNames keeps both qualified forms (there is no bare alias to dedup).
+	names := loaded.CanonicalNames()
+	if !slices.Contains(names, "acat:widget") || !slices.Contains(names, "bcat:widget") {
+		t.Errorf("CanonicalNames() = %v, want both acat:widget and bcat:widget", names)
+	}
+	if slices.Contains(names, "widget") {
+		t.Errorf("CanonicalNames() = %v, must not contain the unresolved bare 'widget'", names)
+	}
+}
+
+// TestSoleCatalogDefinerBothSelectorsResolve: a service defined by exactly one
+// installed catalog resolves both bare and qualified, and CanonicalNames lists
+// it once (the bare form; the qualified form is a redundant alias).
+func TestSoleCatalogDefinerBothSelectorsResolve(t *testing.T) {
+	dir := t.TempDir()
+	installDirCatalog(t, dir, "mycat", map[string]string{"widget.yaml": portableManifest("widget")})
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	bare, ok := loaded.Services["widget"]
+	if !ok {
+		t.Fatal("bare 'widget' should resolve (sole definer)")
+	}
+	qualified, ok := loaded.Services["mycat:widget"]
+	if !ok {
+		t.Fatal("qualified 'mycat:widget' should also resolve (always addressable)")
+	}
+	if bare != qualified {
+		t.Error("bare and qualified selectors must point at the SAME *Service")
+	}
+
+	names := loaded.CanonicalNames()
+	if !slices.Contains(names, "widget") {
+		t.Errorf("CanonicalNames() = %v, want 'widget'", names)
+	}
+	if slices.Contains(names, "mycat:widget") {
+		t.Errorf("CanonicalNames() = %v, must drop the redundant 'mycat:widget' alias", names)
+	}
+}
+
+// TestLocalOverrideResolvesAmbiguity: a local services/<name>.yaml shadowing an
+// ambiguous bare name clears the ambiguity — the bare name resolves to the local
+// file (origin override) while the qualified forms still address their catalogs.
+func TestLocalOverrideResolvesAmbiguity(t *testing.T) {
+	dir := t.TempDir()
+	installDirCatalog(t, dir, "acat", map[string]string{"widget.yaml": portableManifest("widget")})
+	installDirCatalog(t, dir, "bcat", map[string]string{"widget.yaml": portableManifest("widget")})
+
+	svcDir := filepath.Join(dir, "services")
+	if err := os.MkdirAll(svcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const local = "name: widget\ndescription: local widget\nauth: { strategy: none }\ncommands:\n  list: { method: GET, path: /local }\n"
+	if err := os.WriteFile(filepath.Join(svcDir, "widget.yaml"), []byte(local), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ambiguous := loaded.Ambiguous["widget"]; ambiguous {
+		t.Error("a local override must clear the ambiguity")
+	}
+	svc, ok := loaded.Services["widget"]
+	if !ok {
+		t.Fatal("bare 'widget' should resolve to the local override")
+	}
+	if svc.Description != "local widget" {
+		t.Errorf("widget description = %q, want the local file's", svc.Description)
+	}
+	if got := loaded.OriginOf("widget"); got != OriginOverride {
+		t.Errorf("widget origin = %q, want override", got)
+	}
+	// The qualified forms still address their respective installed catalogs.
+	for _, sel := range []string{"acat:widget", "bcat:widget"} {
+		if catSvc, ok := loaded.Services[sel]; !ok || catSvc.Description != "test widget" {
+			t.Errorf("%s should still resolve to its catalog's manifest after a local override", sel)
+		}
 	}
 }
 

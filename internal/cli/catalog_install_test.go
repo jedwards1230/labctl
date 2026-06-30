@@ -123,7 +123,10 @@ func TestCatalogAddNoManifests(t *testing.T) {
 }
 
 // TestCatalogAddCrossCatalogCollision: adding a second catalog that defines a
-// service already provided by an installed catalog is rejected up front.
+// service already provided by an installed catalog now SUCCEEDS — both catalogs
+// install, each addressable via its qualified "<catalog>:<service>" selector
+// (`labctl svc <catalog>:<service>`), while the bare name is ambiguous and
+// reported by `list`/`labctl svc <name>` rather than silently picked.
 func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("LABCTL_CONFIG_DIR", cfg)
@@ -138,11 +141,83 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != exitUsage {
-		t.Fatalf("add bcat exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != exitOK {
+		t.Fatalf("add bcat exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
 	}
-	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "bcat")); !os.IsNotExist(err) {
-		t.Error("the colliding second catalog must not be installed")
+	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "bcat")); err != nil {
+		t.Errorf("the second catalog should now install alongside the first: %v", err)
+	}
+
+	// `list` shows both qualified forms, never the bare ambiguous name.
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+		t.Fatalf("list exit = %d (stderr: %s)", code, errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("acat:widget")) || !bytes.Contains(out.Bytes(), []byte("bcat:widget")) {
+		t.Errorf("list output should show both qualified forms:\n%s", out.String())
+	}
+
+	// The bare name is ambiguous: both `labctl svc widget` (no subcommand) and
+	// `labctl svc widget list` (with one) must error with the qualify message.
+	for _, args := range [][]string{{"svc", "widget"}, {"svc", "widget", "list"}} {
+		out.Reset()
+		errb.Reset()
+		if code := Run(args, &out, &errb); code != exitUsage {
+			t.Errorf("Run(%v) exit = %d, want %d (usage) (stderr: %s)", args, code, exitUsage, errb.String())
+		}
+		if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
+			t.Errorf("Run(%v) stderr = %q, want it to list both qualified forms", args, errb.String())
+		}
+	}
+
+	// The qualified form dispatches normally (profile binding is by the
+	// underlying manifest's service name, so it applies to either catalog's copy).
+	bindBaseURL(t, cfg, "widget", "http://example.test")
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"svc", "acat:widget", "list", "--dry-run"}, &out, &errb); code != exitOK {
+		t.Fatalf("svc acat:widget list exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
+	}
+}
+
+// TestLintDoctorQualifiedAndAmbiguousSelector: `lint`/`doctor` resolve a
+// qualified "<catalog>:<service>" selector (works even though the bare name is
+// ambiguous), and report the ambiguity error (exit 2, listing both qualified
+// forms) for the bare name instead of a misleading "unknown service".
+func TestLintDoctorQualifiedAndAmbiguousSelector(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("LABCTL_CONFIG_DIR", cfg)
+	srcA := filepath.Join(t.TempDir(), "acat")
+	writeSourceManifest(t, srcA, "widget.yaml", portableWidget)
+	srcB := filepath.Join(t.TempDir(), "bcat")
+	writeSourceManifest(t, srcB, "widget.yaml", portableWidget)
+	var out, errb bytes.Buffer
+	for _, src := range []string{srcA, srcB} {
+		out.Reset()
+		errb.Reset()
+		if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+			t.Fatalf("add %s exit = %d (stderr: %s)", src, code, errb.String())
+		}
+	}
+
+	for _, cmd := range []string{"lint", "doctor"} {
+		t.Run(cmd, func(t *testing.T) {
+			out.Reset()
+			errb.Reset()
+			if code := Run([]string{cmd, "acat:widget"}, &out, &errb); code != exitOK {
+				t.Fatalf("%s acat:widget exit = %d, want %d (stderr: %s)", cmd, code, exitOK, errb.String())
+			}
+
+			out.Reset()
+			errb.Reset()
+			if code := Run([]string{cmd, "widget"}, &out, &errb); code != exitUsage {
+				t.Fatalf("%s widget exit = %d, want %d (usage) (stderr: %s)", cmd, code, exitUsage, errb.String())
+			}
+			if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
+				t.Errorf("%s widget stderr = %q, want it to list both qualified forms", cmd, errb.String())
+			}
+		})
 	}
 }
 
@@ -207,6 +282,165 @@ commands:
 	}
 	if !bytes.Contains(got, []byte("UPDATED")) {
 		t.Errorf("update did not pick up the changed source manifest:\n%s", got)
+	}
+}
+
+// TestCatalogUpdateOpenAPISource: `catalog update <name>` on an openapi-sourced
+// catalog re-fetches meta.Source and re-materializes the manifest via the same
+// pipeline `catalog add --openapi` uses, picking up an upstream spec change.
+func TestCatalogUpdateOpenAPISource(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("LABCTL_CONFIG_DIR", cfg)
+
+	specPath := filepath.Join(t.TempDir(), "petstore.yaml")
+	if err := os.WriteFile(specPath, []byte(openapiPetstoreFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+
+	// Change the spec's info.title (still slugifies to a name the installed
+	// catalog's directory does NOT control — meta.Name must win over any
+	// re-inferred name) and add a new operation, then update.
+	const changedSpec = `openapi: "3.0.3"
+info:
+  title: Pet Store v2
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets, now with more detail
+      responses:
+        "200": { description: ok }
+  /pets/{id}:
+    get:
+      operationId: getPet
+      summary: Get one pet
+      responses:
+        "200": { description: ok }
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+security:
+  - ApiKeyAuth: []
+`
+	if err := os.WriteFile(specPath, []byte(changedSpec), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code != exitOK {
+		t.Fatalf("update exit = %d, want 0 (stderr: %s)", code, errb.String())
+	}
+
+	manifestPath := filepath.Join(cfg, "catalogs", "petstore", "petstore.yaml")
+	got, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("catalog manifest missing after update: %v", err)
+	}
+	// The new operation was picked up...
+	if !bytes.Contains(got, []byte("getpet")) && !bytes.Contains(got, []byte("get-pet")) {
+		t.Errorf("update did not re-materialize the new operation:\n%s", got)
+	}
+	// ...but the catalog/install NAME stayed "petstore" — the directory is the
+	// source of truth, not the spec's (changed) info.title.
+	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "petstore")); err != nil {
+		t.Errorf("catalog dir should still be 'petstore' after update: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "pet-store-v2")); err == nil {
+		t.Error("update must not retarget the install to a re-inferred name")
+	}
+}
+
+// TestCatalogUpdateBulkWithOpenAPISource: a bulk `catalog update` (no name)
+// updates an openapi-sourced catalog alongside a dir-sourced one without the
+// openapi case poisoning the exit code or aborting the other catalog's update
+// (the existing per-catalog firstErr pattern).
+func TestCatalogUpdateBulkWithOpenAPISource(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("LABCTL_CONFIG_DIR", cfg)
+
+	dirSrc := filepath.Join(t.TempDir(), "dircat")
+	writeSourceManifest(t, dirSrc, "widget.yaml", portableWidget)
+
+	specPath := filepath.Join(t.TempDir(), "petstore.yaml")
+	if err := os.WriteFile(specPath, []byte(openapiPetstoreFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"catalog", "add", dirSrc, "--name", "dircat"}, &out, &errb); code != exitOK {
+		t.Fatalf("add dircat exit = %d (stderr: %s)", code, errb.String())
+	}
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "apicat"}, &out, &errb); code != exitOK {
+		t.Fatalf("add apicat exit = %d (stderr: %s)", code, errb.String())
+	}
+
+	// Change both sources.
+	const changedWidget = `name: widget
+description: an UPDATED widget
+auth: { strategy: none }
+commands:
+  list: { method: GET, path: /list }
+`
+	writeSourceManifest(t, dirSrc, "widget.yaml", changedWidget)
+
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"catalog", "update"}, &out, &errb); code != exitOK {
+		t.Fatalf("bulk update exit = %d, want 0 (an openapi catalog must not poison the exit code) (stderr: %s)", code, errb.String())
+	}
+
+	gotWidget, err := os.ReadFile(filepath.Join(cfg, "catalogs", "dircat", "widget.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(gotWidget, []byte("UPDATED")) {
+		t.Errorf("bulk update did not refresh dircat:\n%s", gotWidget)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "apicat", "apicat.yaml")); err != nil {
+		t.Errorf("bulk update should leave apicat installed: %v", err)
+	}
+}
+
+// TestCatalogUpdateOpenAPIMovedFileErrors: when the recorded local-file source
+// no longer exists, update fails with the fetch error (not a panic) — the same
+// failure shape as a git remote that has gone away.
+func TestCatalogUpdateOpenAPIMovedFileErrors(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("LABCTL_CONFIG_DIR", cfg)
+
+	specPath := filepath.Join(t.TempDir(), "petstore.yaml")
+	if err := os.WriteFile(specPath, []byte(openapiPetstoreFixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+		t.Fatalf("add exit = %d (stderr: %s)", code, errb.String())
+	}
+
+	if err := os.Remove(specPath); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	errb.Reset()
+	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code == exitOK {
+		t.Fatalf("update should fail when the recorded local-file source no longer exists (stderr: %s)", errb.String())
+	}
+	if !bytes.Contains(errb.Bytes(), []byte("petstore")) {
+		t.Errorf("stderr = %q, want it to mention the catalog %q", errb.String(), "petstore")
 	}
 }
 
