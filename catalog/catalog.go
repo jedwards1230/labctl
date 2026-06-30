@@ -17,9 +17,11 @@ import (
 )
 
 // files embeds every portable manifest. The glob fails to compile if it matches
-// nothing, so the catalog can never silently ship empty.
+// nothing, so the catalog can never silently ship empty. The manifests live
+// alongside this file (a top-level catalog/ dir); go:embed patterns cannot reach
+// a parent directory, so the package and its YAML must share a directory.
 //
-//go:embed services/*.yaml
+//go:embed *.yaml
 var files embed.FS
 
 // index maps a service name (the filename stem) to its embedded YAML bytes. Built
@@ -31,18 +33,18 @@ func buildIndex() map[string][]byte {
 	// The embed is a build-time invariant: a ReadDir/ReadFile failure here means a
 	// corrupt or misbuilt binary, so fail loud at startup rather than silently
 	// shipping a binary with no (or fewer) services that only breaks at runtime.
-	entries, err := files.ReadDir("services")
+	entries, err := files.ReadDir(".")
 	if err != nil {
-		panic(fmt.Sprintf("embedded catalog corrupt: ReadDir(services): %v", err))
+		panic(fmt.Sprintf("embedded catalog corrupt: ReadDir(.): %v", err))
 	}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".yaml") {
 			continue
 		}
-		data, err := files.ReadFile("services/" + name)
+		data, err := files.ReadFile(name)
 		if err != nil {
-			panic(fmt.Sprintf("embedded catalog corrupt: ReadFile(services/%s): %v", name, err))
+			panic(fmt.Sprintf("embedded catalog corrupt: ReadFile(%s): %v", name, err))
 		}
 		m[strings.TrimSuffix(name, ".yaml")] = data
 	}

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedwards1230/labctl/internal/catalog"
+	"github.com/jedwards1230/labctl/catalog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,7 +23,7 @@ var DefaultResolverCommand = []string{"op", "read", "{ref}"}
 type Origin string
 
 const (
-	OriginEmbedded Origin = "embedded" // built-in catalog manifest (internal/catalog)
+	OriginEmbedded Origin = "embedded" // built-in catalog manifest (top-level catalog package)
 	OriginLocal    Origin = "local"    // local services/<name>.yaml with no embedded counterpart
 	OriginOverride Origin = "override" // local services/<name>.yaml shadowing an embedded service
 )

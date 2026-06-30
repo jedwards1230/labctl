@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/jedwards1230/labctl/internal/catalog"
+	"github.com/jedwards1230/labctl/catalog"
 )
 
 // The embedded catalog is the built-in set of portable manifests compiled into
-// the binary (internal/catalog). The loader merges it with the local services/
+// the binary (the top-level catalog package). The loader merges it with the local services/
 // dir: a local manifest of the same name overrides the embedded one, but every
 // service present only in the catalog is still available. These helpers expose
 // the catalog directly, for `labctl catalog list/show` and tests.

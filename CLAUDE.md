@@ -26,8 +26,8 @@ pre-call hook), not baked into the tool. Don't add safety/policy logic here.
 
 ```
 main.go                 entry → internal/cli
+catalog/                portable service manifests embedded in the binary (//go:embed *.yaml)
 internal/
-  catalog/    portable service manifests embedded in the binary (//go:embed)
   manifest/   YAML model + XDG load/merge + schema validation + embedded-catalog merge
   command/    format-neutral Command model + producers (commands: block, generic verbs)
   template/   {secret.X}/{env.X}/{arg.N}/{var} expansion (JSON braces pass through)
@@ -67,7 +67,7 @@ server (`labctl mcp`) over stdio (default) or streamable-HTTP (`--http :9000`,
 MCP endpoint at `/mcp`, `GET /healthz` probe — for in-cluster gateway federation).
 The `truenas` and `sunshine` manifests execute fully.
 
-Embedded catalog (done): 15 portable manifests (`internal/catalog/services/`) are
+Embedded catalog (done): 15 portable manifests (top-level `catalog/`) are
 compiled into the binary via `//go:embed`, so consumers no longer vendor copies.
 `labctl catalog list` / `catalog show <name>` inspect/extract them.
 
@@ -78,7 +78,7 @@ compiled into the binary via `//go:embed`, so consumers no longer vendor copies.
 - Secrets are refs (`op://...`) resolved at call time — never values in manifests,
   never in argv, redacted in verbose/dry-run output.
 - Services resolve from **two sources, local overrides embedded**: the embedded
-  catalog (`internal/catalog`, the 15 built-in portable manifests) is the
+  catalog (the top-level `catalog` package, the 15 built-in portable manifests) is the
   fallback, and a local `<config-dir>/services/<name>.yaml` of the same name
   overrides it (marked `override` in `list`; a local-only service is `local`,
   catalog-only is `embedded`). Two *local* files with one name is still a
