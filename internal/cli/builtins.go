@@ -29,7 +29,7 @@ func (r *runner) addBuiltins(root *cobra.Command, loaded *manifest.Loaded, loadE
 func (r *runner) cmdList(loaded *manifest.Loaded, loadErr error) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "list configured services",
+		Short: "list configured services (embedded / local / override)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.listServices(loaded, loadErr)
 		},

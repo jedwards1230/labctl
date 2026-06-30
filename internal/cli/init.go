@@ -70,7 +70,9 @@ func (r *runner) cmdInit() *cobra.Command {
 			"the schema (commands + auth strategy + secret slots); the machine-specific\n" +
 			"base_url and secret refs go in profile.yaml (shown in a trailing comment).\n" +
 			"It prints to stdout by default; use -o to write it to a file. The output\n" +
-			"validates cleanly (`labctl lint <file>`).",
+			"validates cleanly (`labctl lint <file>`).\n\n" +
+			"To edit an *existing* embedded service, use `labctl catalog edit <name>`\n" +
+			"(it seeds the complete manifest, not a blank starter).",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r.curCommand = "init"

@@ -38,6 +38,34 @@ LABCTL_CONFIG_DIR="$PWD/examples" ./labctl --dry-run svc radarr list
 
 CI runs `gofmt`, `go vet`, `golangci-lint`, `go mod tidy` check, `go test -race` (with a 75% coverage floor), and `go build`. All checks must pass before a PR can merge.
 
+## Changing an embedded manifest
+
+The embedded catalog lives in `catalog/`. Editing a manifest is **rebuild-free** — the authoring loop assumes one terminal session where `LABCTL_CONFIG_DIR` stays exported throughout:
+
+1. **Seed a local override**:
+   ```bash
+   export LABCTL_CONFIG_DIR=$(mktemp -d)
+   labctl catalog edit <name>          # copies the full manifest into $LABCTL_CONFIG_DIR/services/<name>.yaml
+   ```
+2. **Edit and test**:
+   ```bash
+   $EDITOR "$LABCTL_CONFIG_DIR/services/<name>.yaml"
+   labctl svc <name> <command> --dry-run   # preview the resolved request without sending
+   ```
+3. **Promote back into the catalog**:
+   ```bash
+   labctl catalog vendor <name> --catalog-dir catalog   # run from the repo root
+   ```
+4. **Validate**:
+   ```bash
+   labctl lint catalog/<name>.yaml
+   ```
+5. **Commit and open a PR**:
+   ```bash
+   git add catalog/<name>.yaml
+   git commit -m "fix(catalog): update <name> manifest"
+   ```
+
 ## Documentation
 
 Keep documentation current as part of the change, not as a follow-up — update the README and any affected docs in the same PR.

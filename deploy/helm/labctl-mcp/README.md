@@ -27,6 +27,7 @@ helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
 | `mcp.auth.onePasswordItem.itemPath` | `""` | render a OnePasswordItem CRD for the bearer token instead (1Password operator) |
 | `config.profileYaml` | `""` | per-env binding (base_url + op:// refs) → `/config/profile.yaml` |
 | `config.configYaml` | `""` | optional `/config/config.yaml` |
+| `config.servicesYaml` | `{}` | map of service-name → **unindented** manifest YAML; each entry mounts as `/config/services/<name>.yaml`, overriding the embedded catalog without a rebuild. Values must be unindented — the template indents them for the ConfigMap. Example: `servicesYaml: {radarr: "name: radarr\n..."}` |
 | `auth.existingSecret.name` | `""` | secret holding the op service-account token |
 | `auth.onePasswordItem.itemPath` | `""` | render a OnePasswordItem CRD instead (1Password operator) |
 | `ingress.enabled` | `false` | expose via Ingress |

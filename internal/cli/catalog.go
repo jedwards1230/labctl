@@ -65,7 +65,7 @@ func (r *runner) cmdCatalog() *cobra.Command {
 func (r *runner) cmdCatalogList() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "list the embedded catalog services",
+		Short: "list the embedded catalog services (excludes local-only and override markers)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r.curCommand = "catalog"
@@ -88,8 +88,12 @@ func (r *runner) cmdCatalogList() *cobra.Command {
 func (r *runner) cmdCatalogShow() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <service>",
-		Short: "print an embedded manifest's YAML (fork it into a local override)",
-		Args:  cobra.ExactArgs(1),
+		Short: "print an embedded manifest's YAML to stdout",
+		Long: "Print an embedded manifest's YAML to stdout.\n\n" +
+			"To seed a local override for live editing, use `labctl catalog edit <name>`\n" +
+			"(it copies the complete manifest into <config-dir>/services/<name>.yaml, where\n" +
+			"it shadows the embedded one at the next load — no recompile required).",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r.curCommand = "catalog"
 			data, ok := manifest.CatalogManifest(args[0])
@@ -194,7 +198,7 @@ func (r *runner) cmdCatalogVendor() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing catalog/<name>.yaml")
-	cmd.Flags().StringVar(&catalogDir, "catalog-dir", "catalog", "destination catalog source dir (in a repo checkout)")
+	cmd.Flags().StringVar(&catalogDir, "catalog-dir", "catalog", "destination catalog/ dir in a labctl repo checkout (default: catalog/ relative to cwd; run from the repo root)")
 	return cmd
 }
 
