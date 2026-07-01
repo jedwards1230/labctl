@@ -102,6 +102,16 @@ func (r *Resolver) Secret(name string) (string, error) {
 	return v, nil
 }
 
+// ResolvedSecretBinaries returns a diagnostic scheme → resolved-path (or
+// "unresolved: …") map for every registered secrets provider that exposes a
+// resolvable external binary (currently "op"). Pure lookup — no invocation,
+// no secret resolution — intended for --dry-run/--verbose audit output so an
+// operator can see exactly which binary on $PATH would be trusted with
+// credentials before a real command ever runs.
+func (r *Resolver) ResolvedSecretBinaries() map[string]string {
+	return r.registry.ResolvedBinaries()
+}
+
 // ResolvedValues returns a snapshot of the non-empty secret values currently in
 // the resolver's cache. Order is unspecified — a caller that needs determinism
 // (e.g. NewScrubber) sorts the result. Used to build a value-based scrubber so

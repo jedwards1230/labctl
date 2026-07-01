@@ -3,6 +3,9 @@ package secret
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
@@ -41,6 +44,41 @@ func TestRegistryDispatchOp(t *testing.T) {
 	}
 	if _, ok := reg.For("aws"); ok {
 		t.Fatal("did not expect an aws provider")
+	}
+}
+
+// TestRegistryResolvedBinaries_AbsolutePath verifies the diagnostic map surfaces
+// the resolved absolute path for a provider whose command is an absolute,
+// executable path — the case --dry-run visibility is meant to show.
+func TestRegistryResolvedBinaries_AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-op")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	sc := manifest.SecretsConfig{Providers: map[string]manifest.ProviderConfig{
+		"op": {Scheme: "op", Command: []string{bin, "read", "{ref}"}},
+	}}
+	reg := NewRegistry(sc, nil)
+
+	got := reg.ResolvedBinaries()
+	if got["op"] != bin {
+		t.Fatalf("ResolvedBinaries()[\"op\"] = %q, want %q (full map: %v)", got["op"], bin, got)
+	}
+}
+
+// TestRegistryResolvedBinaries_Unresolved verifies a binary that can't be
+// found is reported (not silently omitted) as an "unresolved: …" note.
+func TestRegistryResolvedBinaries_Unresolved(t *testing.T) {
+	sc := manifest.SecretsConfig{Providers: map[string]manifest.ProviderConfig{
+		"op": {Scheme: "op", Command: []string{"labctl-definitely-not-a-real-binary", "read", "{ref}"}},
+	}}
+	reg := NewRegistry(sc, nil)
+
+	got := reg.ResolvedBinaries()
+	if !strings.HasPrefix(got["op"], "unresolved:") {
+		t.Fatalf("ResolvedBinaries()[\"op\"] = %q, want an \"unresolved: …\" note", got["op"])
 	}
 }
 

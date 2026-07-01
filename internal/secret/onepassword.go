@@ -38,6 +38,21 @@ func newOnePassword(cfg manifest.ProviderConfig, runner Runner) *OnePassword {
 // Scheme returns "op".
 func (p *OnePassword) Scheme() string { return "op" }
 
+// ResolvedBinary resolves the absolute path of the configured resolver binary
+// (command[0], "op" by default) via exec.LookPath, for --dry-run/--verbose
+// audit visibility only — an operator can see exactly which binary on $PATH
+// would be trusted with the service-account token before ever running a real
+// command. It performs no invocation. This is deliberately not a policy
+// gate — a lookup failure is reported by the caller as unresolved, never as a
+// hard failure (the binary itself gates nothing; guardrails belong in the
+// consuming layer, see CLAUDE.md).
+func (p *OnePassword) ResolvedBinary() (string, error) {
+	if len(p.command) == 0 || p.command[0] == "" {
+		return "", fmt.Errorf("resolver command is empty")
+	}
+	return exec.LookPath(p.command[0])
+}
+
 // Resolve turns an op:// ref into its value, honoring idiom and field fallback.
 // ctx carries cancellation/deadline into the op subprocess on the real-exec path.
 func (p *OnePassword) Resolve(ctx context.Context, ref Ref) (string, error) {

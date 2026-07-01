@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
@@ -108,6 +109,59 @@ func TestTokenFileEmptyIsAuthError(t *testing.T) {
 	var authErr *AuthError
 	if !errors.As(err, &authErr) {
 		t.Fatalf("expected *AuthError, got %v", err)
+	}
+}
+
+// TestTokenFilePermissions covers checkTokenFilePerms via token(): a 0600
+// file succeeds, and any mode granting group/world read or write is refused
+// with an *AuthError before the file is ever read.
+func TestTokenFilePermissions(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    os.FileMode
+		wantErr bool
+	}{
+		{"0600 owner-only", 0o600, false},
+		{"0400 owner-read-only", 0o400, false},
+		{"0644 world-readable", 0o644, true},
+		{"0640 group-readable", 0o640, true},
+		{"0604 world-readable-alt", 0o604, true},
+		{"0777 wide-open", 0o777, true},
+		{"0660 group-read-write", 0o660, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sa-token")
+			if err := os.WriteFile(path, []byte("token-value"), tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			// os.WriteFile's mode is subject to umask; force the exact mode so
+			// the test is deterministic regardless of the host umask.
+			if err := os.Chmod(path, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+
+			a := opAuth{src: &manifest.SecretSource{File: path}}
+			tok, err := a.token()
+
+			if tc.wantErr {
+				var authErr *AuthError
+				if !errors.As(err, &authErr) {
+					t.Fatalf("mode %#o: expected *AuthError, got %v", tc.mode, err)
+				}
+				if !strings.Contains(err.Error(), "chmod 0600") {
+					t.Errorf("mode %#o: error %q should suggest the fix (chmod 0600)", tc.mode, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("mode %#o: unexpected error: %v", tc.mode, err)
+			}
+			if tok != "token-value" {
+				t.Fatalf("mode %#o: got %q, want token-value", tc.mode, tok)
+			}
+		})
 	}
 }
 

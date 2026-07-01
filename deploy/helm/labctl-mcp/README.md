@@ -9,9 +9,16 @@ call time using an `OP_SERVICE_ACCOUNT_TOKEN`.
 
 ## Quick start
 
+`labctl mcp --http` is secure by default: a non-loopback bind (this chart
+always binds `:9000`, i.e. every interface) refuses to start without a bearer
+token, so `mcp.auth.enabled` (with a token source) or `mcp.allowUnauthenticated`
+must be set — the chart does not pick a default for you.
+
 ```bash
 helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
   --set auth.existingSecret.name=labctl-op-token \
+  --set mcp.auth.enabled=true \
+  --set mcp.auth.existingSecret.name=labctl-mcp-auth-token \
   --set-file config.profileYaml=profile.yaml
 ```
 
@@ -25,6 +32,7 @@ helm install labctl-mcp oci://ghcr.io/jedwards1230/charts/labctl-mcp \
 | `mcp.auth.enabled` | `false` | require `Authorization: Bearer <token>` on `/mcp` (transport-layer access control) |
 | `mcp.auth.existingSecret.name` | `""` | secret holding the bearer token |
 | `mcp.auth.onePasswordItem.itemPath` | `""` | render a OnePasswordItem CRD for the bearer token instead (1Password operator) |
+| `mcp.allowUnauthenticated` | `false` | `--allow-unauthenticated`: explicit opt-out of the bearer-token requirement (use only when NetworkPolicy/an upstream gateway is the sole intended boundary) |
 | `config.profileYaml` | `""` | per-env binding (base_url + op:// refs) → `/config/profile.yaml` |
 | `config.configYaml` | `""` | optional `/config/config.yaml` |
 | `config.servicesYaml` | `{}` | map of service-name → **unindented** manifest YAML; each entry mounts as `/config/services/<name>.yaml`, overriding the embedded catalog without a rebuild. Values must be unindented — the template indents them for the ConfigMap. Example: `servicesYaml: {radarr: "name: radarr\n..."}` |
@@ -41,14 +49,19 @@ Service manifests are embedded in the labctl binary — only `profile.yaml`
 
 ## Access boundaries
 
-Two independent, composable boundaries guard the endpoint. By default **both are
-off** — `/mcp` is reachable by anyone who can route to the port, calling every
-tool. Use either or both:
+Two independent, composable boundaries guard the endpoint:
 
-1. **NetworkPolicy** (`networkPolicy.enabled`) — restricts *which peers* can
-   reach the port at the network layer (see below).
+1. **NetworkPolicy** (`networkPolicy.enabled`, default off) — restricts *which
+   peers* can reach the port at the network layer (see below).
 2. **Bearer-token auth** (`mcp.auth.enabled`) — an app-layer check that requires
    `Authorization: Bearer <token>` on `/mcp` (see [Endpoint authentication](#endpoint-authentication-bearer-token)).
+
+Bearer-token auth is **required, not opt-in**, because this chart's `mcp.http`
+is a bare-port bind (non-loopback): `labctl mcp` refuses to start unless
+`mcp.auth.enabled` (with a token source) is set, or `mcp.allowUnauthenticated`
+explicitly accepts an unauthenticated deploy (e.g. when NetworkPolicy or an
+upstream gateway is the sole intended boundary). NetworkPolicy stays opt-in
+and composes with either choice.
 
 These are transport-/network-layer access control (*who may reach the endpoint at
 all*), not per-tool policy gating — labctl stays an unopinionated executor.
@@ -113,10 +126,14 @@ networkPolicy:
 
 ## Endpoint authentication (bearer token)
 
-`mcp.auth.enabled` adds an optional app-layer boundary: every request to `/mcp`
+`mcp.auth.enabled` adds an app-layer boundary: every request to `/mcp`
 must carry `Authorization: Bearer <token>`; missing/invalid tokens get `401`
-(compared in constant time). `GET /healthz` is never authenticated. This is
-opt-in and default-off — leaving it disabled preserves the previous behavior.
+(compared in constant time). `GET /healthz` is never authenticated. Since
+`mcp.http` is a non-loopback bind, `labctl mcp` itself now requires this (or
+`mcp.allowUnauthenticated`) to start — leaving `mcp.auth.enabled` at its
+default `false` without also setting `mcp.allowUnauthenticated` makes the
+container CrashLoop with an actionable error, not a silently-unauthenticated
+deploy.
 
 Supply the token from a Secret:
 

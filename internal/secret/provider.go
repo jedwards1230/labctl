@@ -14,6 +14,7 @@ package secret
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
@@ -62,6 +63,38 @@ func NewRegistry(cfg manifest.SecretsConfig, runner Runner) *Registry {
 func (r *Registry) For(scheme string) (Provider, bool) {
 	p, ok := r.providers[scheme]
 	return p, ok
+}
+
+// binaryResolver is an optional capability a Provider MAY implement to expose
+// the resolved absolute path of the external binary it shells out to (e.g.
+// "op" for OnePassword), purely for --dry-run/--verbose audit visibility. It
+// performs no invocation, so a resolution failure is not an execution
+// failure — dry-run visibility only, never a gate.
+type binaryResolver interface {
+	ResolvedBinary() (string, error)
+}
+
+// ResolvedBinaries returns a diagnostic scheme → description map for every
+// registered provider that implements binaryResolver. A successful lookup
+// maps to the resolved absolute path; a failed one maps to a human-readable
+// "unresolved: <reason>" note rather than being silently omitted, so an
+// operator auditing --dry-run output sees the failure too. Providers that
+// don't implement binaryResolver are omitted (nothing to show).
+func (r *Registry) ResolvedBinaries() map[string]string {
+	out := map[string]string{}
+	for scheme, p := range r.providers {
+		br, ok := p.(binaryResolver)
+		if !ok {
+			continue
+		}
+		path, err := br.ResolvedBinary()
+		if err != nil {
+			out[scheme] = fmt.Sprintf("unresolved: %v", err)
+			continue
+		}
+		out[scheme] = path
+	}
+	return out
 }
 
 // schemeOf returns the URI scheme (substring before "://"), or "" if absent.

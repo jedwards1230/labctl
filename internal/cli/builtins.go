@@ -211,11 +211,29 @@ func probeSkip(svc *manifest.Service) (string, bool) {
 	return "", false
 }
 
+// resolveHTTPAuth resolves the bearer token for --http and enforces labctl's
+// secure-by-default policy (mcpserver.RequireAuth) before the server ever
+// binds a listener. Kept separate from cmdMCP's RunE so the auth-resolution +
+// policy-gate logic is unit-testable without starting a real HTTP server.
+func resolveHTTPAuth(httpAddr, authTokenFile string, allowUnauthenticated bool) (string, error) {
+	authToken, err := mcpserver.ResolveAuthToken(authTokenFile)
+	if err != nil {
+		// A bad --auth-token-file is operator misconfiguration → usage error
+		// (exit 2), matching ValidateServices in cmdMCP.
+		return "", err
+	}
+	if err := mcpserver.RequireAuth(httpAddr, authToken, allowUnauthenticated); err != nil {
+		return "", err
+	}
+	return authToken, nil
+}
+
 func (r *runner) cmdMCP() *cobra.Command {
 	var readOnly bool
 	var services []string
 	var httpAddr string
 	var authTokenFile string
+	var allowUnauthenticated bool
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "serve manifests as MCP tools over stdio or streamable-HTTP",
@@ -229,6 +247,12 @@ func (r *runner) cmdMCP() *cobra.Command {
 			"\"Authorization: Bearer <token>\" header on every /mcp request. GET /healthz\n" +
 			"remains unauthenticated (liveness probe). Only meaningful with --http;\n" +
 			"stdio transport ignores this setting.\n\n" +
+			"Secure by default: a --http bind to a non-loopback address (anything other\n" +
+			"than 127.0.0.1, ::1, or localhost — including a bare \":PORT\", which binds\n" +
+			"every interface) REFUSES to start unless an auth token is configured via one\n" +
+			"of the two ways above. Pass --allow-unauthenticated to explicitly opt out (not\n" +
+			"recommended outside a trusted network). A loopback --http bind is unaffected\n" +
+			"and needs no token, matching today's implicit local-trust model.\n\n" +
 			"--read-only omits write tools entirely; --service restricts the tool set\n" +
 			"to the named service(s). Both filters compose and apply to either transport.",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -241,12 +265,16 @@ func (r *runner) cmdMCP() *cobra.Command {
 			if authTokenFile != "" && httpAddr == "" {
 				return agentsafety.NewUsageError("--auth-token-file has no effect without --http (bearer auth only applies to the streamable-HTTP transport)")
 			}
+			if allowUnauthenticated && httpAddr == "" {
+				return agentsafety.NewUsageError("--allow-unauthenticated has no effect without --http (the stdio transport has no bearer-auth gate to opt out of)")
+			}
 			opts := mcpserver.Options{ReadOnly: readOnly, Services: services}
 			if httpAddr != "" {
-				authToken, err := mcpserver.ResolveAuthToken(authTokenFile)
+				authToken, err := resolveHTTPAuth(httpAddr, authTokenFile, allowUnauthenticated)
 				if err != nil {
-					// A bad --auth-token-file is operator misconfiguration → usage
-					// error (exit 2), matching ValidateServices above.
+					// A bad --auth-token-file or a RequireAuth policy refusal is
+					// operator misconfiguration → usage error (exit 2), matching
+					// ValidateServices above.
 					return agentsafety.NewUsageError(err.Error())
 				}
 				return mcpserver.ServeHTTP(cmd.Context(), httpAddr, r.loaded, r.config, Version, r.tracer, r.stderr, opts, authToken)
@@ -265,6 +293,7 @@ func (r *runner) cmdMCP() *cobra.Command {
 	cmd.Flags().StringSliceVar(&services, "service", nil, "restrict tools to these service(s); repeatable or comma-separated (default: all)")
 	cmd.Flags().StringVar(&httpAddr, "http", "", "serve streamable-HTTP MCP on this addr (e.g. :9000); default empty = stdio")
 	cmd.Flags().StringVar(&authTokenFile, "auth-token-file", "", "path to a file containing the bearer token that guards the /mcp endpoint; overrides "+mcpserver.AuthTokenEnv)
+	cmd.Flags().BoolVar(&allowUnauthenticated, "allow-unauthenticated", false, "opt out of the default requirement that a non-loopback --http bind have an auth token configured (not recommended outside a trusted network)")
 	return cmd
 }
 
