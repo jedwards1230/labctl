@@ -57,13 +57,3 @@ func (s *Scrubber) Scrub(text string) string {
 	}
 	return text
 }
-
-// Func returns a redaction function suitable for the transports' Redact field,
-// or nil when the scrubber holds no values (so callers can leave Redact nil and
-// take the identity path without paying a per-call closure).
-func (s *Scrubber) Func() func(string) string {
-	if s == nil || len(s.values) == 0 {
-		return nil
-	}
-	return s.Scrub
-}

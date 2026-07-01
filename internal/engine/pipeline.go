@@ -167,7 +167,7 @@ func runStep(
 	accVars map[string]any,
 	stderr io.Writer,
 ) error {
-	base, err := resolveBaseURL(ep.BaseURL, svc, stepEnv.Vars, stepEnv, stepEnv.Getenv)
+	base, err := resolveBaseURL(ep.BaseURL, svc, stepEnv, stepEnv.Getenv)
 	if err != nil {
 		return fmt.Errorf("resolve base URL: %w", err)
 	}

@@ -49,9 +49,6 @@ func TestScrubberEmptyAndNilIdentity(t *testing.T) {
 	if got := NewScrubber([]string{"", ""}).Scrub("hello"); got != "hello" {
 		t.Fatalf("scrubber built from empty values changed text: %q", got)
 	}
-	if NewScrubber(nil).Func() != nil {
-		t.Fatal("Func() should be nil when no values")
-	}
 }
 
 func TestScrubberEmptyValueNeverBlanketReplaces(t *testing.T) {

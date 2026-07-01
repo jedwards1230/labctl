@@ -58,7 +58,7 @@ func New(ctx context.Context, cfg manifest.Config, secrets map[string]manifest.S
 }
 
 // withGetenv overrides the env lookup (tests).
-func (r *Resolver) withGetenv(f func(string) string) *Resolver { r.getenv = f; return r }
+func (r *Resolver) withGetenv(f func(string) string) { r.getenv = f }
 
 // Secret resolves the named secret, caching the result.
 func (r *Resolver) Secret(name string) (string, error) {

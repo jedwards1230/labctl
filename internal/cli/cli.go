@@ -110,7 +110,7 @@ func (r *runner) newRoot() *cobra.Command {
 
 	// Load manifests for dynamic registration. A load error still lets builtins
 	// like `lint` run, so report it lazily rather than aborting here.
-	loaded, loadErr := manifest.Load(configDirFromArgs(r.flags.configDir, root))
+	loaded, loadErr := manifest.Load(configDirFromArgs(r.flags.configDir))
 	if loaded != nil {
 		r.config = loaded.Config
 		r.loaded = loaded
@@ -376,7 +376,7 @@ func isUnknownCommandError(err error) bool {
 
 // configDirFromArgs peeks at --config-dir before full parse so dynamic
 // registration uses the right dir. Falls back to the resolved default.
-func configDirFromArgs(flagVal string, root *cobra.Command) string {
+func configDirFromArgs(flagVal string) string {
 	// Pre-parse persistent flags to honor --config-dir during registration.
 	if flagVal != "" {
 		return flagVal

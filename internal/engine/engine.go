@@ -117,7 +117,7 @@ func Execute(ctx context.Context, req Request, stderr io.Writer) (*Result, error
 
 // executeHTTP handles the http transport path.
 func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *command.Command, ep resolvedEndpoint, tmplEnv template.Env, stderr io.Writer) (*Result, error) {
-	base, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
+	base, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv, tmplEnv.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func executeJSONRPCWS(ctx context.Context, req Request, svc *manifest.Service, c
 
 	// Resolve the base URL (secret-free) so dry-run can preview the target
 	// without resolving any auth/command params.
-	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
+	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv, tmplEnv.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +661,7 @@ func envOverrideVars(svc *manifest.Service, getenv func(string) string) map[stri
 
 // resolveBaseURL honors a <PREFIX>_URL whole-base override, else expands the
 // templated base_url.
-func resolveBaseURL(epBase string, svc *manifest.Service, vars map[string]string, env template.Env, getenv func(string) string) (string, error) {
+func resolveBaseURL(epBase string, svc *manifest.Service, env template.Env, getenv func(string) string) (string, error) {
 	// A named endpoint's base_url is not overridden by <PREFIX>_URL (that targets
 	// the default base).
 	if epBase == svc.BaseURL && svc.EnvPrefix != "" {
