@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/engine"
 	"github.com/jedwards1230/labctl/internal/manifest"
@@ -93,6 +94,10 @@ func buildSchema(c *command.Command) json.RawMessage {
 	props["raw"] = map[string]any{
 		"type":        "boolean",
 		"description": "return raw response body",
+	}
+	props["dry_run"] = map[string]any{
+		"type":        "boolean",
+		"description": "preview the request without sending it",
 	}
 
 	schema := map[string]any{
@@ -208,41 +213,23 @@ func firstClause(help string) string {
 // is distinguishable from "false").
 func boolPtr(b bool) *bool { return &b }
 
-// buildAnnotations derives the MCP tool annotations from a command.
-//
-//   - Read command (c.Write == false): ReadOnlyHint=true. Per the spec the
-//     destructive/idempotent hints are not meaningful when ReadOnlyHint is true,
-//     so they are left unset.
-//   - Write command (c.Write == true): ReadOnlyHint=false, with destructive and
-//     idempotent hints inferred from the HTTP method where one exists:
-//     DELETE/PUT are destructive + idempotent; POST/PATCH are additive + not
-//     idempotent. A write with no HTTP method (a jsonrpc-ws `call`, a multi-step
-//     pipeline) leaves DestructiveHint nil and IdempotentHint at the SDK default
-//     — we don't guess for non-HTTP writes.
+// buildAnnotations derives the MCP tool annotations from a command. The
+// read-only/destructive/idempotent policy lives in agentsafety.Hints (SDK-free,
+// tested there); this glue only copies those hints onto the SDK struct plus the
+// Title and OpenWorldHint.
 //
 // Every tool sets OpenWorldHint=true: labctl tools call out to external/LAN
 // services, so the domain of interaction is open, not a closed in-process world.
 func buildAnnotations(svcName, cmdID string, c *command.Command) *mcp.ToolAnnotations {
+	hints := agentsafety.Hints(c.Write, c.Method)
 	ann := &mcp.ToolAnnotations{
-		Title:         toolTitle(svcName, cmdID, c.Help),
-		OpenWorldHint: boolPtr(true),
+		Title:          toolTitle(svcName, cmdID, c.Help),
+		OpenWorldHint:  boolPtr(true),
+		ReadOnlyHint:   hints.ReadOnly,
+		IdempotentHint: hints.Idempotent,
 	}
-	if !c.Write {
-		ann.ReadOnlyHint = true
-		return ann
-	}
-	ann.ReadOnlyHint = false
-	switch strings.ToUpper(c.Method) {
-	case "DELETE", "PUT":
-		// Full replacement / removal: destructive and idempotent.
-		ann.DestructiveHint = boolPtr(true)
-		ann.IdempotentHint = true
-	case "POST", "PATCH":
-		// Additive / partial: not destructive, not idempotent.
-		ann.DestructiveHint = boolPtr(false)
-		ann.IdempotentHint = false
-	default:
-		// Non-HTTP write (jsonrpc-ws call, pipeline): leave at SDK defaults.
+	if hints.Destructive != nil {
+		ann.DestructiveHint = boolPtr(*hints.Destructive)
 	}
 	return ann
 }
@@ -496,8 +483,9 @@ func handleCall(
 
 	filter, _ := raw["filter"].(string)
 	rawFlag, _ := raw["raw"].(bool)
+	dryRun, _ := raw["dry_run"].(bool)
 
-	return executeAndRender(ctx, svc, c, args, filter, rawFlag, cfg, tracer, stderr), nil
+	return executeAndRender(ctx, svc, c, args, filter, rawFlag, dryRun, cfg, tracer, stderr), nil
 }
 
 // handleVerb dispatches one generic-verb tool call. It builds the args slice
@@ -522,6 +510,7 @@ func handleVerb(
 
 	filter, _ := raw["filter"].(string)
 	rawFlag, _ := raw["raw"].(bool)
+	dryRun, _ := raw["dry_run"].(bool)
 
 	c, err := command.Verb(svc.Transport, verb, verbArgs(verb, raw))
 	if err != nil {
@@ -529,7 +518,7 @@ func handleVerb(
 		return errorResult(err.Error()), nil
 	}
 
-	return executeAndRender(ctx, svc, c, nil, filter, rawFlag, cfg, tracer, stderr), nil
+	return executeAndRender(ctx, svc, c, nil, filter, rawFlag, dryRun, cfg, tracer, stderr), nil
 }
 
 // verbArgs maps the structured tool inputs of a generic-verb call to the
@@ -587,6 +576,7 @@ func executeAndRender(
 	args []string,
 	filter string,
 	rawFlag bool,
+	dryRun bool,
 	cfg manifest.Config,
 	tracer trace.Tracer,
 	stderr io.Writer,
@@ -602,17 +592,22 @@ func executeAndRender(
 		Flags: engine.Flags{
 			Filter: filter,
 			Raw:    rawFlag,
+			DryRun: dryRun,
 		},
 		Runner: nil, // real op resolver
 	}, stderr)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return errorResult(err.Error())
+		code := agentsafety.Classify(err)
+		status, _ := agentsafety.HTTPStatus(err)
+		auditMutation(stderr, svc, c, args, dryRun, "error", agentsafety.ClassName(code), status)
+		return errorResultErr(err)
 	}
 
 	if res.DryRunMsg != "" {
 		span.SetStatus(codes.Ok, "")
+		auditMutation(stderr, svc, c, args, true, "dry-run", "", 0)
 		return textResult(res.DryRunMsg)
 	}
 
@@ -627,8 +622,13 @@ func executeAndRender(
 	if renderErr := output.Render(res.Body, res.Output, renderOpts, &sb); renderErr != nil {
 		span.RecordError(renderErr)
 		span.SetStatus(codes.Error, renderErr.Error())
-		return errorResult(renderErr.Error())
+		code := agentsafety.Classify(renderErr)
+		status, _ := agentsafety.HTTPStatus(renderErr)
+		auditMutation(stderr, svc, c, args, dryRun, "error", agentsafety.ClassName(code), status)
+		return errorResultErr(renderErr)
 	}
+
+	auditMutation(stderr, svc, c, args, dryRun, "ok", "", 0)
 
 	result := textResult(sb.String())
 
@@ -758,6 +758,7 @@ func verbSchema(verb string) json.RawMessage {
 
 	props["filter"] = map[string]any{"type": "string", "description": "jq filter over the response"}
 	props["raw"] = map[string]any{"type": "boolean", "description": "return raw response body"}
+	props["dry_run"] = map[string]any{"type": "boolean", "description": "preview the request without sending it"}
 
 	schema := map[string]any{
 		"type":       "object",
@@ -780,12 +781,57 @@ func textResult(text string) *mcp.CallToolResult {
 	}
 }
 
-// errorResult wraps a message in an error CallToolResult.
+// errorResultErr builds a STRUCTURED error CallToolResult from a real error:
+// IsError=true, the unchanged TextContent fallback (err.Error()), plus
+// StructuredContent {"error", "class"[, "status"]} derived from the shared
+// exit-code classifier — so an MCP agent recovers the CLI's typed-exit rigor.
+func errorResultErr(err error) *mcp.CallToolResult {
+	code := agentsafety.Classify(err)
+	status, _ := agentsafety.HTTPStatus(err)
+	return structuredErrorResult(err.Error(), agentsafety.ClassName(code), status)
+}
+
+// errorResult wraps a bad-tool-input message. It classifies as "usage" (these
+// call sites represent malformed tool input), routing through the same
+// structured error path so every MCP error carries {error,class}.
 func errorResult(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
+	return errorResultErr(agentsafety.NewUsageError(msg))
+}
+
+// structuredErrorResult is the single structured error CallToolResult builder:
+// the text content is the fallback for non-structured hosts; StructuredContent
+// carries the typed {error, class, status?} object.
+func structuredErrorResult(msg, class string, status int) *mcp.CallToolResult {
+	sc := map[string]any{"error": msg, "class": class}
+	if status != 0 {
+		sc["status"] = status
 	}
+	return &mcp.CallToolResult{
+		IsError:           true,
+		Content:           []mcp.Content{&mcp.TextContent{Text: msg}},
+		StructuredContent: sc,
+	}
+}
+
+// auditMutation emits one structured audit record per WRITE call to stderr (the
+// MCP diagnostics channel). It is a no-op for read tools and when stderr is nil.
+// Caller identity is not plumbed yet, so the record's Caller defaults to
+// "unknown" (LogMutation fills it) — the field is reserved so it can be
+// populated later without a breaking change.
+func auditMutation(w io.Writer, svc *manifest.Service, c *command.Command, args []string, dryRun bool, outcome, class string, status int) {
+	if !c.Write || w == nil {
+		return
+	}
+	agentsafety.LogMutation(w, agentsafety.MutationRecord{
+		Service: svc.Name,
+		Command: c.ID,
+		Method:  c.Method,
+		DryRun:  dryRun,
+		Outcome: outcome,
+		Class:   class,
+		Status:  status,
+		Params:  strings.Join(args, " "),
+	})
 }
 
 // Serve builds the MCP server from the loaded manifests and runs it on stdio,

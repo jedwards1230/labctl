@@ -1,12 +1,6 @@
-package secret
+package agentsafety
 
-import (
-	"context"
-	"sort"
-	"testing"
-
-	"github.com/jedwards1230/labctl/internal/manifest"
-)
+import "testing"
 
 func TestScrubberLongestFirst(t *testing.T) {
 	// "abc" is a substring of "abcdef"; longest-first ordering must redact the
@@ -49,9 +43,6 @@ func TestScrubberEmptyAndNilIdentity(t *testing.T) {
 	if got := NewScrubber([]string{"", ""}).Scrub("hello"); got != "hello" {
 		t.Fatalf("scrubber built from empty values changed text: %q", got)
 	}
-	if NewScrubber(nil).Func() != nil {
-		t.Fatal("Func() should be nil when no values")
-	}
 }
 
 func TestScrubberEmptyValueNeverBlanketReplaces(t *testing.T) {
@@ -69,30 +60,5 @@ func TestScrubberDedupe(t *testing.T) {
 	}
 	if got := s.Scrub("dup dup"); got != "<redacted> <redacted>" {
 		t.Fatalf("Scrub = %q", got)
-	}
-}
-
-// TestResolvedValuesSnapshot proves the resolver exposes only the non-empty
-// values it has actually resolved (and cached), which is what NewScrubber
-// consumes to redact diagnostics.
-func TestResolvedValuesSnapshot(t *testing.T) {
-	run := func(argv []string) (string, error) { return "resolved-val", nil }
-	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{
-		"a": {Ref: "op://v/i/a"},
-		"b": {Ref: "op://v/i/b"},
-	}, "", run)
-	r.withGetenv(func(string) string { return "" })
-
-	// Nothing resolved yet.
-	if vals := r.ResolvedValues(); len(vals) != 0 {
-		t.Fatalf("ResolvedValues before any Secret() = %v, want empty", vals)
-	}
-	if _, err := r.Secret("a"); err != nil {
-		t.Fatal(err)
-	}
-	vals := r.ResolvedValues()
-	sort.Strings(vals)
-	if len(vals) != 1 || vals[0] != "resolved-val" {
-		t.Fatalf("ResolvedValues = %v, want [resolved-val]", vals)
 	}
 }

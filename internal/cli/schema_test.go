@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // TestSchemaCommand: `labctl schema` emits the embedded JSON Schema as valid JSON
@@ -12,7 +14,7 @@ import (
 func TestSchemaCommand(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"schema"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"schema"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()

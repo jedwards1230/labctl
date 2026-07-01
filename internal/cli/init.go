@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -93,7 +94,7 @@ func (r *runner) cmdInit() *cobra.Command {
 func (r *runner) scaffoldService(name, auth, outPath string, force bool) error {
 	tmpl, err := manifest.Scaffold(name, auth)
 	if err != nil {
-		return &usageError{err.Error()}
+		return agentsafety.NewUsageError(err.Error())
 	}
 	if outPath == "" {
 		_, _ = fmt.Fprint(r.stdout, tmpl)
@@ -101,7 +102,7 @@ func (r *runner) scaffoldService(name, auth, outPath string, force bool) error {
 	}
 	if !force {
 		if _, statErr := os.Stat(outPath); statErr == nil {
-			return &usageError{fmt.Sprintf("%s already exists; pass --force to overwrite", outPath)}
+			return agentsafety.NewUsageError(fmt.Sprintf("%s already exists; pass --force to overwrite", outPath))
 		}
 	}
 	if err := os.WriteFile(outPath, []byte(tmpl), 0o600); err != nil {

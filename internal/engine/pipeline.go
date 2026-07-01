@@ -15,9 +15,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/itchyny/gojq"
 	"github.com/jedwards1230/labctl/internal/auth"
 	"github.com/jedwards1230/labctl/internal/command"
+	"github.com/jedwards1230/labctl/internal/filter"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/output"
 	"github.com/jedwards1230/labctl/internal/secret"
@@ -167,7 +167,7 @@ func runStep(
 	accVars map[string]any,
 	stderr io.Writer,
 ) error {
-	base, err := resolveBaseURL(ep.BaseURL, svc, stepEnv.Vars, stepEnv, stepEnv.Getenv)
+	base, err := resolveBaseURL(ep.BaseURL, svc, stepEnv, stepEnv.Getenv)
 	if err != nil {
 		return fmt.Errorf("resolve base URL: %w", err)
 	}
@@ -386,19 +386,11 @@ func accVarToString(v any) string {
 
 // pipelineJQFirst parses and runs a jq expression, returning the first result.
 func pipelineJQFirst(expr string, input any) (any, error) {
-	q, err := gojq.Parse(expr)
+	f, err := filter.Compile(expr)
 	if err != nil {
 		return nil, fmt.Errorf("parse jq %q: %w", expr, err)
 	}
-	iter := q.Run(input)
-	v, ok := iter.Next()
-	if !ok {
-		return nil, nil
-	}
-	if errV, ok := v.(error); ok {
-		return nil, errV
-	}
-	return v, nil
+	return f.First(input)
 }
 
 // pipelineTruthy mirrors jq's truthiness: false and null are falsy; everything else truthy.

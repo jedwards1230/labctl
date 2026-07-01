@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/transport"
 )
@@ -49,7 +50,7 @@ func TestCatalogAddOpenAPILocalFile(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
@@ -65,7 +66,7 @@ func TestCatalogAddOpenAPILocalFile(t *testing.T) {
 	// list shows the service with its catalog provenance.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("list exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("petstore")) {
@@ -75,7 +76,7 @@ func TestCatalogAddOpenAPILocalFile(t *testing.T) {
 	// `catalog installed` reports type "openapi" with the source as the spec path.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("installed exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("openapi")) || !bytes.Contains(out.Bytes(), []byte(specPath)) {
@@ -87,8 +88,8 @@ func TestCatalogAddOpenAPILocalFile(t *testing.T) {
 	bindBaseURL(t, cfg, "petstore", "http://example.test")
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"svc", "petstore", "listpets", "--dry-run"}, &out, &errb); code != exitOK {
-		t.Fatalf("svc petstore listpets --dry-run exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
+	if code := Run([]string{"svc", "petstore", "listpets", "--dry-run"}, &out, &errb); code != agentsafety.ExitOK {
+		t.Fatalf("svc petstore listpets --dry-run exit = %d, want %d (stderr: %s)", code, agentsafety.ExitOK, errb.String())
 	}
 }
 
@@ -104,7 +105,7 @@ func TestCatalogAddOpenAPIInfersName(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", specPath, "--openapi"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "pet-store", "pet-store.yaml")); err != nil {
@@ -128,8 +129,8 @@ paths: {}
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", specPath, "--openapi"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("--name")) {
 		t.Errorf("stderr = %q, want guidance to pass --name", errb.String())
@@ -151,8 +152,8 @@ func TestCatalogAddOpenAPIRefIncompatible(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--ref", "main"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--ref", "main"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 }
 
@@ -168,7 +169,7 @@ func TestCatalogAddOpenAPIFromHTTPServer(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", cfg)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", srv.URL + "/openapi.yaml", "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", srv.URL + "/openapi.yaml", "--openapi", "--name", "petstore"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "petstore", "petstore.yaml")); err != nil {
@@ -187,8 +188,8 @@ func TestFetchOpenAPISourceRejectsNonHTTPScheme(t *testing.T) {
 		t.Run(src, func(t *testing.T) {
 			if _, err := fetchOpenAPISource(src); err == nil {
 				t.Fatalf("fetchOpenAPISource(%q) should reject non-http(s) scheme", src)
-			} else if _, ok := err.(*usageError); !ok {
-				t.Fatalf("fetchOpenAPISource(%q) error = %T, want *usageError: %v", src, err, err)
+			} else if _, ok := err.(*agentsafety.UsageError); !ok {
+				t.Fatalf("fetchOpenAPISource(%q) error = %T, want *agentsafety.UsageError: %v", src, err, err)
 			}
 		})
 	}
@@ -233,8 +234,8 @@ func TestFetchOpenAPIURLSizeCap(t *testing.T) {
 	if !errors.As(err, &decErr) {
 		t.Fatalf("size-cap error = %T, want *manifest.DecodeError (exit 6): %v", err, err)
 	}
-	if code := classify(err); code != exitDecode {
-		t.Errorf("classify(size-cap error) = %d, want %d (decode)", code, exitDecode)
+	if code := agentsafety.Classify(err); code != agentsafety.ExitDecode {
+		t.Errorf("agentsafety.Classify(size-cap error) = %d, want %d (decode)", code, agentsafety.ExitDecode)
 	}
 }
 
@@ -255,8 +256,8 @@ func TestFetchOpenAPIURLNon200(t *testing.T) {
 	if !errors.As(err, &decErr) {
 		t.Fatalf("non-200 error = %T, want *manifest.DecodeError (exit 6): %v", err, err)
 	}
-	if code := classify(err); code != exitDecode {
-		t.Errorf("classify(non-200 error) = %d, want %d (decode)", code, exitDecode)
+	if code := agentsafety.Classify(err); code != agentsafety.ExitDecode {
+		t.Errorf("agentsafety.Classify(non-200 error) = %d, want %d (decode)", code, agentsafety.ExitDecode)
 	}
 }
 
@@ -284,14 +285,14 @@ func TestFetchOpenAPIURLNetworkError(t *testing.T) {
 	if !errors.As(err, &netErr) {
 		t.Fatalf("connection-refused error = %T, want *transport.NetworkError (exit 5): %v", err, err)
 	}
-	if code := classify(err); code != exitNetwork {
-		t.Errorf("classify(connection-refused error) = %d, want %d (network)", code, exitNetwork)
+	if code := agentsafety.Classify(err); code != agentsafety.ExitNetwork {
+		t.Errorf("agentsafety.Classify(connection-refused error) = %d, want %d (network)", code, agentsafety.ExitNetwork)
 	}
 }
 
 // TestCatalogAddOpenAPINetworkErrorExitCode drives the full `catalog add
 // --openapi` CLI path against an unreachable URL and asserts the process exit
-// code is 5 (network), not the generic exitGeneral fallback.
+// code is 5 (network), not the generic agentsafety.ExitGeneral fallback.
 func TestCatalogAddOpenAPINetworkErrorExitCode(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("LABCTL_CONFIG_DIR", cfg)
@@ -307,8 +308,8 @@ func TestCatalogAddOpenAPINetworkErrorExitCode(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"catalog", "add", "http://" + addr + "/openapi.yaml", "--openapi", "--name", "unreachable"}, &out, &errb)
-	if code != exitNetwork {
-		t.Fatalf("exit = %d, want %d (network) (stderr: %s)", code, exitNetwork, errb.String())
+	if code != agentsafety.ExitNetwork {
+		t.Fatalf("exit = %d, want %d (network) (stderr: %s)", code, agentsafety.ExitNetwork, errb.String())
 	}
 }
 

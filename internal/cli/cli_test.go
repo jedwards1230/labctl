@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // TestRunVersion exercises the full Run wiring (telemetry start → cobra tree →
@@ -13,7 +15,7 @@ import (
 func TestRunVersion(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"version"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"version"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "labctl") {
@@ -27,7 +29,7 @@ func TestRunVersion(t *testing.T) {
 func TestRunListEmptyConfig(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()
@@ -36,25 +38,25 @@ func TestRunListEmptyConfig(t *testing.T) {
 	}
 }
 
-// TestRunUnknownCommand confirms an unrecognized subcommand exits with exitUsage (2).
+// TestRunUnknownCommand confirms an unrecognized subcommand exits with agentsafety.ExitUsage (2).
 func TestRunUnknownCommand(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"definitely-not-a-service"}, &out, &errb); code != exitUsage {
-		t.Errorf("unknown command exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"definitely-not-a-service"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Errorf("unknown command exit = %d, want %d (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 }
 
-// TestRunUnknownServiceExits2 confirms labctl svc <unknown-service> exits exitUsage.
+// TestRunUnknownServiceExits2 confirms labctl svc <unknown-service> exits agentsafety.ExitUsage.
 func TestRunUnknownServiceExits2(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "bogus-service"}, &out, &errb); code != exitUsage {
-		t.Fatalf("unknown service exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"svc", "bogus-service"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("unknown service exit = %d, want %d (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 }
 
-// TestRunUnknownSubcommandExits2 confirms labctl <service> <unknown-cmd> exits exitUsage.
+// TestRunUnknownSubcommandExits2 confirms labctl <service> <unknown-cmd> exits agentsafety.ExitUsage.
 // Manifests live under <configDir>/services/, so the radarr.yaml is placed there
 // to ensure "radarr" is actually registered as a service command before we ask for
 // a non-existent subcommand.
@@ -78,8 +80,8 @@ commands:
 	}
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "bogus-cmd"}, &out, &errb); code != exitUsage {
-		t.Fatalf("unknown subcommand exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"svc", "radarr", "bogus-cmd"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("unknown subcommand exit = %d, want %d (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 }
 
@@ -136,8 +138,8 @@ secrets:
 		t.Run(tc.name, func(t *testing.T) {
 			var out, errb bytes.Buffer
 			code := Run(tc.args, &out, &errb)
-			if code != exitUsage {
-				t.Fatalf("exit = %d, want %d (stderr: %s)", code, exitUsage, errb.String())
+			if code != agentsafety.ExitUsage {
+				t.Fatalf("exit = %d, want %d (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 			}
 			if !strings.Contains(errb.String(), wantDiag) {
 				t.Fatalf("stderr = %q, want to contain %q", errb.String(), wantDiag)

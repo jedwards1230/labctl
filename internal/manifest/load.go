@@ -39,9 +39,6 @@ func catalogOrigin(name string) Origin { return Origin(originCatalogPrefix + nam
 // IsCatalog reports whether this Origin came from an installed catalog.
 func (o Origin) IsCatalog() bool { return strings.HasPrefix(string(o), originCatalogPrefix) }
 
-// CatalogName returns the installed-catalog name for a catalog Origin (empty otherwise).
-func (o Origin) CatalogName() string { return strings.TrimPrefix(string(o), originCatalogPrefix) }
-
 // Loaded is the merged result of a config dir: the global config plus every
 // service manifest, keyed by ADDRESSABLE SELECTOR. A selector is either a bare
 // service name (an embedded/local service, or an installed-catalog service with

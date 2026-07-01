@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"path/filepath"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // TestCatalogValidateValid: a directory with one valid portable manifest
@@ -14,7 +16,7 @@ func TestCatalogValidateValid(t *testing.T) {
 	writeSourceManifest(t, dir, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("ok   widget.yaml (widget)")) {
@@ -34,8 +36,8 @@ func TestCatalogValidateRejectsBinding(t *testing.T) {
 			writeSourceManifest(t, dir, "bound.yaml", body)
 
 			var out, errb bytes.Buffer
-			if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitUsage {
-				t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+			if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 			}
 			if !bytes.Contains(out.Bytes(), []byte("FAIL bound.yaml")) {
 				t.Errorf("stdout = %q, want a \"FAIL bound.yaml\" line", out.String())
@@ -52,8 +54,8 @@ func TestCatalogValidateDuplicateName(t *testing.T) {
 	writeSourceManifest(t, dir, "widget2.yaml", portableWidget) // same `name: widget`
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("duplicate service name")) {
 		t.Errorf("stdout = %q, want a duplicate-service-name diagnostic", out.String())
@@ -65,8 +67,8 @@ func TestCatalogValidateEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("no manifests")) {
 		t.Errorf("stderr = %q, want a 'no manifests' diagnostic", errb.String())
@@ -81,8 +83,8 @@ func TestCatalogValidateMixedResults(t *testing.T) {
 	writeSourceManifest(t, dir, "bad.yaml", "name: bad\nbogus_key: 1\nauth: { strategy: none }\n")
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("ok   widget.yaml")) {
 		t.Errorf("stdout = %q, want the valid manifest reported ok despite the other failing", out.String())
@@ -101,7 +103,7 @@ func TestCatalogValidateNoConfigDirNeeded(t *testing.T) {
 	writeSourceManifest(t, dir, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "validate", dir}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 }

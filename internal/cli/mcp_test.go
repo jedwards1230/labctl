@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // ── resolveHTTPAuth (pure, no listener) ────────────────────────────────────
@@ -86,8 +88,8 @@ func TestMCPHTTPRefusesUnauthenticatedNonLoopback(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"mcp", "--http", ":9000"}, &out, &errb)
-	if code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage); stderr: %s", code, exitUsage, errb.String())
+	if code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage); stderr: %s", code, agentsafety.ExitUsage, errb.String())
 	}
 	msg := errb.String()
 	for _, want := range []string{"LABCTL_MCP_AUTH_TOKEN", "--auth-token-file", "--allow-unauthenticated"} {
@@ -107,8 +109,8 @@ func TestMCPAllowUnauthenticatedRequiresHTTP(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"mcp", "--allow-unauthenticated"}, &out, &errb)
-	if code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage); stderr: %s", code, exitUsage, errb.String())
+	if code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage); stderr: %s", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !strings.Contains(errb.String(), "--allow-unauthenticated") {
 		t.Fatalf("stderr = %q, want it to mention --allow-unauthenticated", errb.String())
@@ -123,7 +125,7 @@ func TestMCPHelpDocumentsSecureDefault(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"mcp", "--help"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"mcp", "--help"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("--help exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	help := out.String()

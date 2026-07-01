@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/itchyny/gojq"
+	"github.com/jedwards1230/labctl/internal/filter"
 )
 
 var validTransports = map[string]bool{
@@ -278,17 +278,17 @@ func validateStep(cmdID, stepID string, step Step, s *Service) error {
 		return &ConfigError{Err: fmt.Errorf("command %q %s: must set path or endpoint", cmdID, stepID)}
 	}
 	for varName, expr := range step.Extract {
-		if _, err := gojq.Parse(expr); err != nil {
+		if _, err := filter.Compile(expr); err != nil {
 			return &ConfigError{Err: fmt.Errorf("command %q %s: extract %q: invalid jq %q: %w", cmdID, stepID, varName, expr, err)}
 		}
 	}
 	if step.When != "" {
-		if _, err := gojq.Parse(step.When); err != nil {
+		if _, err := filter.Compile(step.When); err != nil {
 			return &ConfigError{Err: fmt.Errorf("command %q %s: when: invalid jq %q: %w", cmdID, stepID, step.When, err)}
 		}
 	}
 	if step.BodyTransform != "" {
-		if _, err := gojq.Parse(step.BodyTransform); err != nil {
+		if _, err := filter.Compile(step.BodyTransform); err != nil {
 			return &ConfigError{Err: fmt.Errorf("command %q %s: body_transform: invalid jq %q: %w", cmdID, stepID, step.BodyTransform, err)}
 		}
 	}

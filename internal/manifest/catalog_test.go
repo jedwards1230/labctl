@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/catalog"
 )
 
 // wantCatalog is the set of services the embedded catalog must ship. A change to
@@ -20,7 +22,7 @@ var wantCatalog = []string{
 // TestCatalogHasExpectedServices asserts the catalog ships exactly the 15
 // expected services.
 func TestCatalogHasExpectedServices(t *testing.T) {
-	got := CatalogNames()
+	got := catalog.Names()
 	want := append([]string(nil), wantCatalog...)
 	sort.Strings(want)
 	if len(got) != len(want) {
@@ -42,7 +44,7 @@ func TestCatalogHasExpectedServices(t *testing.T) {
 // path, so "" both matches that invariant and asserts it. It also re-asserts
 // structural Validate explicitly.
 func TestCatalogServicesValidate(t *testing.T) {
-	for _, name := range CatalogNames() {
+	for _, name := range catalog.Names() {
 		raw, ok := CatalogManifest(name)
 		if !ok {
 			t.Fatalf("CatalogManifest(%q) missing", name)
@@ -71,7 +73,7 @@ func TestCatalogServicesValidate(t *testing.T) {
 // manifest. Mirrors the scaffold no-leak guard.
 func TestCatalogNoLeak(t *testing.T) {
 	banned := []string{"lilbro.cloud", "192.168.", "10.43.", "op://"}
-	for _, name := range CatalogNames() {
+	for _, name := range catalog.Names() {
 		raw, ok := CatalogManifest(name)
 		if !ok {
 			t.Fatalf("CatalogManifest(%q) missing", name)
@@ -100,10 +102,10 @@ func TestLoadEmbeddedOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(l.Services) != len(CatalogNames()) {
-		t.Fatalf("loaded %d services, want %d embedded", len(l.Services), len(CatalogNames()))
+	if len(l.Services) != len(catalog.Names()) {
+		t.Fatalf("loaded %d services, want %d embedded", len(l.Services), len(catalog.Names()))
 	}
-	for _, name := range CatalogNames() {
+	for _, name := range catalog.Names() {
 		if _, ok := l.Services[name]; !ok {
 			t.Errorf("embedded service %q did not load", name)
 		}
@@ -167,8 +169,8 @@ commands:
 	if got := l.OriginOf("customsvc"); got != OriginLocal {
 		t.Fatalf("customsvc origin = %q, want local", got)
 	}
-	if len(l.Services) != len(CatalogNames())+1 {
-		t.Errorf("loaded %d services, want %d embedded + 1 local", len(l.Services), len(CatalogNames()))
+	if len(l.Services) != len(catalog.Names())+1 {
+		t.Errorf("loaded %d services, want %d embedded + 1 local", len(l.Services), len(catalog.Names()))
 	}
 	if got := l.OriginOf("radarr"); got != OriginEmbedded {
 		t.Errorf("radarr origin = %q, want embedded", got)
@@ -198,7 +200,7 @@ commands:
 
 // TestCatalogServiceUnknown: requesting a non-embedded name errors.
 func TestCatalogServiceUnknown(t *testing.T) {
-	if _, err := CatalogService("not-a-service"); err == nil {
+	if _, err := catalogService("not-a-service"); err == nil {
 		t.Fatal("unknown embedded service should error")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/transport"
 )
@@ -48,14 +49,14 @@ func (r *runner) catalogAddOpenAPI(source, name string, force bool) error {
 			return err
 		}
 		if inferred == "" {
-			return &usageError{"OpenAPI document has no info.title to infer a service name from; pass --name"}
+			return agentsafety.NewUsageError("OpenAPI document has no info.title to infer a service name from; pass --name")
 		}
-		if err := manifest.ValidateCatalogName(inferred); err != nil {
-			return &usageError{fmt.Sprintf("inferred name %q from the OpenAPI document's info.title is not a valid service/catalog name (^[a-z0-9][a-z0-9_-]*$); pass --name", inferred)}
+		if err := manifest.ValidateName(inferred); err != nil {
+			return agentsafety.NewUsageError(fmt.Sprintf("inferred name %q from the OpenAPI document's info.title is not a valid service/catalog name (^[a-z0-9][a-z0-9_-]*$); pass --name", inferred))
 		}
 		name = inferred
-	} else if err := manifest.ValidateCatalogName(name); err != nil {
-		return err
+	} else if err := manifest.ValidateName(name); err != nil {
+		return agentsafety.NewUsageError(err.Error())
 	}
 
 	data, err := manifest.GenerateManifestFromSpec(name, specBytes)
@@ -100,11 +101,11 @@ func fetchOpenAPISource(source string) ([]byte, error) {
 	case strings.HasPrefix(source, "http://"), strings.HasPrefix(source, "https://"):
 		return fetchOpenAPIURL(source)
 	case strings.Contains(source, "://"):
-		return nil, &usageError{fmt.Sprintf("--openapi source %q must be an http(s):// URL or a local file path", source)}
+		return nil, agentsafety.NewUsageError(fmt.Sprintf("--openapi source %q must be an http(s):// URL or a local file path", source))
 	default:
 		b, err := os.ReadFile(source)
 		if err != nil {
-			return nil, &usageError{fmt.Sprintf("read OpenAPI document %q: %v", source, err)}
+			return nil, agentsafety.NewUsageError(fmt.Sprintf("read OpenAPI document %q: %v", source, err))
 		}
 		return b, nil
 	}
@@ -131,7 +132,7 @@ func fetchOpenAPIURL(rawURL string) ([]byte, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, &usageError{fmt.Sprintf("invalid OpenAPI URL %q: %v", rawURL, err)}
+		return nil, agentsafety.NewUsageError(fmt.Sprintf("invalid OpenAPI URL %q: %v", rawURL, err))
 	}
 	resp, err := client.Do(req)
 	if err != nil {

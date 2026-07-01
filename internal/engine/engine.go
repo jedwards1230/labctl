@@ -11,14 +11,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/itchyny/gojq"
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/auth"
 	"github.com/jedwards1230/labctl/internal/command"
+	"github.com/jedwards1230/labctl/internal/filter"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/secret"
 	"github.com/jedwards1230/labctl/internal/template"
@@ -153,7 +153,7 @@ func secretResolverDiagnostic(res *secret.Resolver) string {
 
 // executeHTTP handles the http transport path.
 func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *command.Command, ep resolvedEndpoint, tmplEnv template.Env, stderr io.Writer) (*Result, error) {
-	base, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
+	base, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv, tmplEnv.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +192,8 @@ func executeHTTP(ctx context.Context, req Request, svc *manifest.Service, cmd *c
 	// (which run template expansion over header/body values). The preview shows
 	// the pre-expansion templated header/body; auth stays redacted.
 	if req.Flags.DryRun {
-		preview := mergeAuthPreview(cmd.Headers, authSpec, cmd.NoAuth)
-		return &Result{DryRunMsg: dryRun(cmd.Method, url, preview, []byte(cmd.Body)), Output: cmd.Output, ResponseCodec: responseCodec}, nil
+		preview := agentsafety.MergeAuthPreview(cmd.Headers, authSpec, cmd.NoAuth)
+		return &Result{DryRunMsg: agentsafety.DryRun(cmd.Method, url, preview, []byte(cmd.Body)), Output: cmd.Output, ResponseCodec: responseCodec}, nil
 	}
 
 	headers, err := expandHeaders(cmd.Headers, tmplEnv)
@@ -254,7 +254,7 @@ func executeJSONRPCWS(ctx context.Context, req Request, svc *manifest.Service, c
 
 	// Resolve the base URL (secret-free) so dry-run can preview the target
 	// without resolving any auth/command params.
-	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv.Vars, tmplEnv, tmplEnv.Getenv)
+	wsURL, err := resolveBaseURL(ep.BaseURL, svc, tmplEnv, tmplEnv.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func executeJSONRPCWS(ctx context.Context, req Request, svc *manifest.Service, c
 		if !cmd.NoAuth {
 			fmt.Fprintf(&b, "auth: %s [\"<redacted>\"]\n", authSpec.Method)
 		}
-		fmt.Fprintf(&b, "call: %s %s\n", cmd.Method, redactSecretTokens(params))
+		fmt.Fprintf(&b, "call: %s %s\n", cmd.Method, agentsafety.RedactSecretTokens(params))
 		return &Result{DryRunMsg: b.String(), Output: cmd.Output}, nil
 	}
 
@@ -339,7 +339,7 @@ func scrubFromEnv(env template.Env) func(string) string {
 		return nil
 	}
 	return func(s string) string {
-		return secret.NewScrubber(r.ResolvedValues()).Scrub(s)
+		return agentsafety.NewScrubber(r.ResolvedValues()).Scrub(s)
 	}
 }
 
@@ -565,23 +565,22 @@ func extractData(body []byte, dataPath string) ([]any, error) {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	filter := "."
+	filterExpr := "."
 	if dataPath != "" {
-		filter = dataPath
+		filterExpr = dataPath
 	}
 
-	q, err := gojq.Parse(filter)
+	q, err := filter.Compile(filterExpr)
 	if err != nil {
-		return nil, fmt.Errorf("parse data filter %q: %w", filter, err)
+		return nil, fmt.Errorf("parse data filter %q: %w", filterExpr, err)
 	}
 
-	iter := q.Run(parsed)
-	v, ok := iter.Next()
+	v, ferr, ok := q.Run(parsed).Next()
 	if !ok {
 		return nil, nil
 	}
-	if errV, ok := v.(error); ok {
-		return nil, errV
+	if ferr != nil {
+		return nil, ferr
 	}
 
 	switch tv := v.(type) {
@@ -592,12 +591,12 @@ func extractData(body []byte, dataPath string) ([]any, error) {
 		// configured and the value is explicitly null (e.g. {"data":null}), that
 		// is almost certainly a server bug — returning empty would silently stop
 		// pagination instead of surfacing the problem.
-		if filter != "." {
-			return nil, fmt.Errorf("data path %q: value is null (expected array)", filter)
+		if filterExpr != "." {
+			return nil, fmt.Errorf("data path %q: value is null (expected array)", filterExpr)
 		}
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("data path %q: expected array, got %T", filter, v)
+		return nil, fmt.Errorf("data path %q: expected array, got %T", filterExpr, v)
 	}
 }
 
@@ -613,18 +612,17 @@ func extractScalar(body []byte, jqPath string) (string, error) {
 		return "", fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	q, err := gojq.Parse(jqPath)
+	q, err := filter.Compile(jqPath)
 	if err != nil {
 		return "", fmt.Errorf("parse next-cursor filter %q: %w", jqPath, err)
 	}
 
-	iter := q.Run(parsed)
-	v, ok := iter.Next()
+	v, ferr, ok := q.Run(parsed).Next()
 	if !ok {
 		return "", nil
 	}
-	if errV, ok := v.(error); ok {
-		return "", errV
+	if ferr != nil {
+		return "", ferr
 	}
 
 	switch tv := v.(type) {
@@ -699,7 +697,7 @@ func envOverrideVars(svc *manifest.Service, getenv func(string) string) map[stri
 
 // resolveBaseURL honors a <PREFIX>_URL whole-base override, else expands the
 // templated base_url.
-func resolveBaseURL(epBase string, svc *manifest.Service, vars map[string]string, env template.Env, getenv func(string) string) (string, error) {
+func resolveBaseURL(epBase string, svc *manifest.Service, env template.Env, getenv func(string) string) (string, error) {
 	// A named endpoint's base_url is not overridden by <PREFIX>_URL (that targets
 	// the default base).
 	if epBase == svc.BaseURL && svc.EnvPrefix != "" {
@@ -781,56 +779,6 @@ func joinURL(base, path string) string {
 		return base
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
-}
-
-// mergeAuthPreview adds a redacted line for the credential the auth strategy
-// would set, so --dry-run shows it WITHOUT resolving the secret (no op call).
-func mergeAuthPreview(headers map[string]string, a manifest.Auth, noAuth bool) map[string]string {
-	out := make(map[string]string, len(headers)+1)
-	for k, v := range headers {
-		out[k] = v
-	}
-	if noAuth {
-		return out
-	}
-	switch a.Strategy {
-	case "header-key":
-		out[a.Header] = "<redacted>"
-	case "bearer":
-		scheme := a.Scheme
-		if scheme == "" {
-			scheme = "Bearer"
-		}
-		out["Authorization"] = scheme + " <redacted>"
-	case "basic":
-		out["Authorization"] = "Basic <redacted>"
-	case "oauth2-client-credentials":
-		out["Authorization"] = "Bearer <redacted>"
-	}
-	return out
-}
-
-// secretToken matches a {secret.X} template reference. Dry-run shows pre-expansion
-// templates (it resolves no secrets), so a {secret.X} carries no credential value
-// — but we still redact it in the preview so a secret-bearing custom header/body
-// reads as <redacted>, consistently with the auth header, and never invites
-// confusion about what a real request would carry.
-var secretToken = regexp.MustCompile(`\{secret\.[^}]*\}`)
-
-func redactSecretTokens(s string) string {
-	return secretToken.ReplaceAllString(s, "<redacted>")
-}
-
-func dryRun(method, url string, headers map[string]string, body []byte) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s\n", strings.ToUpper(method), url)
-	for k, v := range headers {
-		fmt.Fprintf(&b, "%s: %s\n", k, transport.RedactHeader(k, redactSecretTokens(v)))
-	}
-	if len(body) > 0 {
-		fmt.Fprintf(&b, "\n%s\n", redactSecretTokens(string(body)))
-	}
-	return b.String()
 }
 
 func filterEmpty(in []string) []string {

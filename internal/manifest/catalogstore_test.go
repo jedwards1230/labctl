@@ -51,8 +51,8 @@ func TestInstallCatalogAndLoadProvenance(t *testing.T) {
 	if got := loaded.OriginOf("widget"); got != catalogOrigin("mycat") {
 		t.Errorf("widget origin = %q, want %q", got, catalogOrigin("mycat"))
 	}
-	if got := loaded.OriginOf("widget"); !got.IsCatalog() || got.CatalogName() != "mycat" {
-		t.Errorf("origin helpers: IsCatalog=%v CatalogName=%q", got.IsCatalog(), got.CatalogName())
+	if got := loaded.OriginOf("widget"); !got.IsCatalog() {
+		t.Errorf("origin helpers: IsCatalog=%v, want true", got.IsCatalog())
 	}
 	// The embedded floor still loads for everything the catalog didn't touch.
 	if got := loaded.OriginOf("radarr"); got != OriginEmbedded {
@@ -324,22 +324,23 @@ func TestRemoveCatalogNotInstalled(t *testing.T) {
 	}
 }
 
-// TestValidateCatalogNameRejectsUnsafe: the name guard rejects traversal,
-// separators, absolute paths, and uppercase.
-func TestValidateCatalogNameRejectsUnsafe(t *testing.T) {
-	bad := []string{"", ".", "..", "a/b", "../../etc", "/etc", "-x", "Foo", "a.b"}
+// TestValidateNameRejectsUnsafe: the shared service/catalog name guard rejects
+// traversal, separators, absolute paths, spaces, and uppercase, while accepting
+// real service/catalog stems.
+func TestValidateNameRejectsUnsafe(t *testing.T) {
+	bad := []string{"", ".", "..", "a/b", "../../etc", "/etc", "-x", "Foo", "a.b", "foo bar"}
 	for _, name := range bad {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidateCatalogName(name); err == nil {
-				t.Errorf("ValidateCatalogName(%q) = nil, want rejection", name)
+			if err := ValidateName(name); err == nil {
+				t.Errorf("ValidateName(%q) = nil, want rejection", name)
 			}
 		})
 	}
-	good := []string{"a", "mycat", "my-cat", "my_cat", "cat123"}
+	good := []string{"a", "mycat", "my-cat", "my_cat", "cat123", "radarr", "n8n", "ts"}
 	for _, name := range good {
 		t.Run(name, func(t *testing.T) {
-			if err := ValidateCatalogName(name); err != nil {
-				t.Errorf("ValidateCatalogName(%q) = %v, want nil", name, err)
+			if err := ValidateName(name); err != nil {
+				t.Errorf("ValidateName(%q) = %v, want nil", name, err)
 			}
 		})
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/transport"
 	"github.com/spf13/cobra"
 )
@@ -126,13 +127,13 @@ func (u *selfUpdater) run(opts selfUpdateOpts) error {
 	asset, ok := findAsset(rel.Assets, assetName)
 	if !ok {
 		// No binary for this platform is an environment problem (exit 2).
-		return &usageError{fmt.Sprintf("release %s has no asset %q for this platform (%s/%s)", tag, assetName, u.goos, u.goarch)}
+		return agentsafety.NewUsageError(fmt.Sprintf("release %s has no asset %q for this platform (%s/%s)", tag, assetName, u.goos, u.goarch))
 	}
 	shaAsset, ok := findAsset(rel.Assets, assetName+".sha256")
 	if !ok {
 		// A release lacking the .sha256 sidecar can't be installed here — same
 		// non-transient platform/packaging class as a missing binary (exit 2).
-		return &usageError{fmt.Sprintf("release %s asset %q has no .sha256 sibling to verify against", tag, assetName)}
+		return agentsafety.NewUsageError(fmt.Sprintf("release %s asset %q has no .sha256 sibling to verify against", tag, assetName))
 	}
 
 	_, _ = fmt.Fprintf(u.stderr, "resolving %s...\ndownloading %s...\n", tag, assetName)
@@ -199,7 +200,7 @@ func (u *selfUpdater) resolveRelease(version string) (*ghRelease, error) {
 	}
 	var rel ghRelease
 	if err := json.Unmarshal(body, &rel); err != nil {
-		return nil, &decodeError{fmt.Errorf("decoding release JSON: %w", err)}
+		return nil, agentsafety.NewDecodeError(fmt.Errorf("decoding release JSON: %w", err))
 	}
 	if rel.TagName == "" {
 		return nil, fmt.Errorf("release response carried no tag_name")

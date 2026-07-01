@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
 
@@ -18,7 +19,7 @@ func TestCatalogEditSeedsFullCopy(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
@@ -57,8 +58,8 @@ func TestCatalogEditRefusesClobber(t *testing.T) {
 
 	// Without --force: usage error, sentinel untouched.
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if got, _ := os.ReadFile(dest); string(got) != sentinel {
 		t.Errorf("override was clobbered without --force: %q", got)
@@ -67,7 +68,7 @@ func TestCatalogEditRefusesClobber(t *testing.T) {
 	// With --force: replaced by the embedded manifest.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "edit", "authentik", "--force"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "edit", "authentik", "--force"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("--force exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got, _ := os.ReadFile(dest)
@@ -83,8 +84,8 @@ func TestCatalogEditUnknown(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "edit", "nope"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"catalog", "edit", "nope"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("no embedded service")) {
 		t.Errorf("stderr = %q, want a 'no embedded service' diagnostic", errb.String())
@@ -106,8 +107,8 @@ func TestCatalogEditRejectsUnsafeNames(t *testing.T) {
 			t.Setenv("LABCTL_CONFIG_DIR", cfg)
 
 			var out, errb bytes.Buffer
-			if code := Run([]string{"catalog", "edit", name}, &out, &errb); code != exitUsage {
-				t.Fatalf("exit = %d, want %d (usage) for name %q", code, exitUsage, name)
+			if code := Run([]string{"catalog", "edit", name}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("exit = %d, want %d (usage) for name %q", code, agentsafety.ExitUsage, name)
 			}
 			assertDirEmpty(t, filepath.Join(cfg, "services"))
 			assertDirEmpty(t, outside)
@@ -125,8 +126,8 @@ func TestCatalogVendorRejectsUnsafeNames(t *testing.T) {
 			catDir := t.TempDir()
 
 			var out, errb bytes.Buffer
-			if code := Run([]string{"catalog", "vendor", name, "--catalog-dir", catDir}, &out, &errb); code != exitUsage {
-				t.Fatalf("exit = %d, want %d (usage) for name %q", code, exitUsage, name)
+			if code := Run([]string{"catalog", "vendor", name, "--catalog-dir", catDir}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("exit = %d, want %d (usage) for name %q", code, agentsafety.ExitUsage, name)
 			}
 			assertDirEmpty(t, catDir)
 		})
@@ -158,13 +159,13 @@ func TestCatalogVendorRoundTrip(t *testing.T) {
 	catDir := t.TempDir()
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("edit exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("vendor exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
@@ -189,8 +190,8 @@ func TestCatalogVendorMissingOverride(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	catDir := t.TempDir()
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("no local override")) {
 		t.Errorf("stderr = %q, want a 'no local override' diagnostic", errb.String())
@@ -221,7 +222,7 @@ commands:
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb)
-	if code == exitOK {
+	if code == agentsafety.ExitOK {
 		t.Fatalf("vendor of a broken override succeeded, want failure (stderr: %s)", errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(catDir, "authentik.yaml")); !os.IsNotExist(err) {
@@ -237,7 +238,7 @@ func TestCatalogVendorRefusesClobber(t *testing.T) {
 	catDir := t.TempDir()
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "edit", "authentik"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("edit exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	dest := filepath.Join(catDir, "authentik.yaml")
@@ -249,8 +250,8 @@ func TestCatalogVendorRefusesClobber(t *testing.T) {
 	// Without --force: usage error, sentinel untouched.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if got, _ := os.ReadFile(dest); string(got) != sentinel {
 		t.Errorf("catalog file was clobbered without --force: %q", got)
@@ -259,7 +260,7 @@ func TestCatalogVendorRefusesClobber(t *testing.T) {
 	// With --force: replaced by the override.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir, "--force"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "vendor", "authentik", "--catalog-dir", catDir, "--force"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("--force exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got, _ := os.ReadFile(dest)

@@ -4,11 +4,37 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
+
+// TestResolvedValuesSnapshot proves the resolver exposes only the non-empty
+// values it has actually resolved (and cached), which is what agentsafety's
+// NewScrubber consumes to redact diagnostics.
+func TestResolvedValuesSnapshot(t *testing.T) {
+	run := func(argv []string) (string, error) { return "resolved-val", nil }
+	r := New(context.Background(), legacyCfg(), map[string]manifest.Secret{
+		"a": {Ref: "op://v/i/a"},
+		"b": {Ref: "op://v/i/b"},
+	}, "", run)
+	r.withGetenv(func(string) string { return "" })
+
+	// Nothing resolved yet.
+	if vals := r.ResolvedValues(); len(vals) != 0 {
+		t.Fatalf("ResolvedValues before any Secret() = %v, want empty", vals)
+	}
+	if _, err := r.Secret("a"); err != nil {
+		t.Fatal(err)
+	}
+	vals := r.ResolvedValues()
+	sort.Strings(vals)
+	if len(vals) != 1 || vals[0] != "resolved-val" {
+		t.Fatalf("ResolvedValues = %v, want [resolved-val]", vals)
+	}
+}
 
 // TestResolverOpFailureIsAuthError proves a provider/`op` failure surfaces as a
 // *secret.AuthError so classify() maps it to exit 3 — parity with the

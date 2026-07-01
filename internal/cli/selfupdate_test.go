@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // fakeGH is a hermetic stand-in for the GitHub releases API + asset CDN. It
@@ -228,8 +230,8 @@ func TestSelfUpdateSHAMismatchAborts(t *testing.T) {
 	if b, _ := os.ReadFile(exe); string(b) != "ORIGINAL" {
 		t.Fatalf("sha mismatch left the binary modified: %q", b)
 	}
-	if got := classify(err); got != exitGeneral {
-		t.Fatalf("classify = %d, want %d (general)", got, exitGeneral)
+	if got := agentsafety.Classify(err); got != agentsafety.ExitGeneral {
+		t.Fatalf("classify = %d, want %d (general)", got, agentsafety.ExitGeneral)
 	}
 }
 
@@ -243,8 +245,8 @@ func TestSelfUpdateMissingAssetIsUsageError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected usage error for missing asset, got nil")
 	}
-	if got := classify(err); got != exitUsage {
-		t.Fatalf("classify = %d, want %d (usage)", got, exitUsage)
+	if got := agentsafety.Classify(err); got != agentsafety.ExitUsage {
+		t.Fatalf("classify = %d, want %d (usage)", got, agentsafety.ExitUsage)
 	}
 	if !strings.Contains(err.Error(), "plan9/mips") {
 		t.Fatalf("error = %v, want it to name the platform", err)
@@ -265,8 +267,8 @@ func TestSelfUpdateMissingSHA256IsUsageError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected usage error for missing .sha256 sibling, got nil")
 	}
-	if got := classify(err); got != exitUsage {
-		t.Fatalf("classify = %d, want %d (usage)", got, exitUsage)
+	if got := agentsafety.Classify(err); got != agentsafety.ExitUsage {
+		t.Fatalf("classify = %d, want %d (usage)", got, agentsafety.ExitUsage)
 	}
 	if !strings.Contains(err.Error(), ".sha256") {
 		t.Fatalf("error = %v, want it to mention the missing .sha256", err)
@@ -301,8 +303,8 @@ func TestSelfUpdateAPINon200(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error on 404, got nil")
 	}
-	if got := classify(err); got != exitHTTP {
-		t.Fatalf("classify = %d, want %d (http)", got, exitHTTP)
+	if got := agentsafety.Classify(err); got != agentsafety.ExitHTTP {
+		t.Fatalf("classify = %d, want %d (http)", got, agentsafety.ExitHTTP)
 	}
 	if b, _ := os.ReadFile(exe); string(b) != "OLD" {
 		t.Fatalf("API-404 path modified the binary: %q", b)
@@ -325,8 +327,8 @@ func TestSelfUpdateSendsBearerToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected 401 without token, got nil")
 	}
-	if got := classify(err); got != exitHTTP {
-		t.Fatalf("classify = %d, want %d (http) for 401", got, exitHTTP)
+	if got := agentsafety.Classify(err); got != agentsafety.ExitHTTP {
+		t.Fatalf("classify = %d, want %d (http) for 401", got, agentsafety.ExitHTTP)
 	}
 }
 
@@ -391,7 +393,7 @@ func TestSelfUpdateSchemeDowngradeRejected(t *testing.T) {
 func TestSelfUpdateRegistered(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"self-update", "--help"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"self-update", "--help"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("self-update --help exit = %d (stderr: %s)", code, errb.String())
 	}
 	combined := out.String() + errb.String()

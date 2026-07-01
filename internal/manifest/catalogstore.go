@@ -28,22 +28,25 @@ type CatalogMeta struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// catalogNamePattern restricts a catalog name to a single, safe path segment —
-// the same rule cli.validateServiceName applies to service names. A catalog name
-// is used to build <config-dir>/catalogs/<name>/, so it must not contain a
-// separator or climb out of that directory.
-var catalogNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+// namePattern restricts a service OR catalog name to a single, safe path
+// segment: it must start with an alphanumeric and contain only lowercase
+// letters, digits, '-' and '_'. Both a service name (used to build
+// <config-dir>/services/<name>.yaml and catalog/<name>.yaml) and a catalog name
+// (used to build <config-dir>/catalogs/<name>/) must satisfy it so neither can
+// contain a separator or climb out of its directory.
+var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 // CatalogsDir returns the installed-catalogs root under a config dir.
 func CatalogsDir(configDir string) string { return filepath.Join(configDir, "catalogs") }
 
-// ValidateCatalogName guards catalog path construction against traversal: name
-// must be a single lowercase path segment (^[a-z0-9][a-z0-9_-]*$). It rejects "",
-// ".", "..", "a/b", absolute paths, a leading '-', and uppercase. Failures are
-// wrapped in *ConfigError so callers classify them to the usage exit code (2).
-func ValidateCatalogName(name string) error {
-	if !catalogNamePattern.MatchString(name) {
-		return &ConfigError{Err: fmt.Errorf("invalid catalog name %q: must be a single path segment (^[a-z0-9][a-z0-9_-]*$)", name)}
+// ValidateName is the single shared service/catalog-name guard against path
+// traversal: name must be a single lowercase path segment
+// (^[a-z0-9][a-z0-9_-]*$). It rejects "", ".", "..", "a/b", absolute paths, a
+// leading '-', and uppercase. It returns a plain error; each caller wraps it in
+// its own typed error (manifest *ConfigError / cli usage error → exit 2).
+func ValidateName(name string) error {
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("invalid name %q: must be a single path segment (^[a-z0-9][a-z0-9_-]*$)", name)
 	}
 	return nil
 }
@@ -105,8 +108,8 @@ func InstalledCatalogs(configDir string) ([]CatalogMeta, error) {
 // minimal CatalogMeta{Name:name} (found=true) — enough to remove it, though not
 // to update it (no recorded source). A corrupt metadata file is an error.
 func ReadCatalogMeta(configDir, name string) (CatalogMeta, bool, error) {
-	if err := ValidateCatalogName(name); err != nil {
-		return CatalogMeta{}, false, err
+	if err := ValidateName(name); err != nil {
+		return CatalogMeta{}, false, &ConfigError{Err: err}
 	}
 	dir := filepath.Join(CatalogsDir(configDir), name)
 	info, err := os.Stat(dir)
@@ -140,8 +143,8 @@ func ReadCatalogMeta(configDir, name string) (CatalogMeta, bool, error) {
 // swapped into place, so a failure never leaves a half-installed catalog. A final
 // dir that already exists is an error unless force is set (then it is replaced).
 func InstallCatalog(configDir string, meta CatalogMeta, files map[string][]byte, force bool) error {
-	if err := ValidateCatalogName(meta.Name); err != nil {
-		return err
+	if err := ValidateName(meta.Name); err != nil {
+		return &ConfigError{Err: err}
 	}
 	catalogsDir := CatalogsDir(configDir)
 	if err := os.MkdirAll(catalogsDir, 0o755); err != nil {
@@ -203,8 +206,8 @@ func InstallCatalog(configDir string, meta CatalogMeta, files map[string][]byte,
 // RemoveCatalog deletes an installed catalog's dir. A name that is not installed
 // is a *ConfigError (exit 2), not a silent success.
 func RemoveCatalog(configDir, name string) error {
-	if err := ValidateCatalogName(name); err != nil {
-		return err
+	if err := ValidateName(name); err != nil {
+		return &ConfigError{Err: err}
 	}
 	dir := filepath.Join(CatalogsDir(configDir), name)
 	info, err := os.Stat(dir)

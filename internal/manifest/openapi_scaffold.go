@@ -101,11 +101,11 @@ func GenerateManifestFromSpec(name string, specBytes []byte) ([]byte, error) {
 
 // InferServiceName derives a candidate service/catalog name from the OpenAPI
 // document's info.title, slugified to the same shape catalog names require
-// (^[a-z0-9][a-z0-9_-]*$ — see ValidateCatalogName). Returns "", nil if the
+// (^[a-z0-9][a-z0-9_-]*$ — see ValidateName). Returns "", nil if the
 // document declares no title; the caller (catalog add --openapi) treats that
 // as "pass --name". The returned name is NOT guaranteed to pass
-// ValidateCatalogName (e.g. a title that slugifies to "" or to a name starting
-// with a character ValidateCatalogName still rejects) — the caller validates it.
+// ValidateName (e.g. a title that slugifies to "" or to a name starting
+// with a character ValidateName still rejects) — the caller validates it.
 func InferServiceName(specBytes []byte) (string, error) {
 	doc, err := buildV3Document(specBytes)
 	if err != nil {

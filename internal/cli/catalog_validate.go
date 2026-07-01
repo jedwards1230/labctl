@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -51,46 +52,31 @@ type catalogValidateResult struct {
 }
 
 // catalogValidate validates every top-level *.yaml/*.yml in dir, printing a
-// per-file result to stdout. Unlike collectAndValidate (which fails closed on
-// the FIRST bad manifest, the right behavior for `catalog add`), this walks
-// every file so a CI run reports every problem in one pass rather than one
-// file at a time.
+// per-file result to stdout. It shares the read → ValidatePortableManifest →
+// stem-fallback → duplicate-detection walk with collectAndValidate (via
+// validateEntries) but, unlike that fail-fast `catalog add` path, it reports
+// every file so a CI run surfaces every problem in one pass.
 func (r *runner) catalogValidate(dir string) error {
-	entries, err := yamlEntriesIn(dir)
+	entries, err := validateEntries(dir)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", dir, err)
 	}
 	if len(entries) == 0 {
-		return &usageError{fmt.Sprintf("no manifests (*.yaml/*.yml) found in %s", dir)}
+		return agentsafety.NewUsageError(fmt.Sprintf("no manifests (*.yaml/*.yml) found in %s", dir))
 	}
 
 	results := make([]catalogValidateResult, 0, len(entries))
-	svcToFile := map[string]string{} // service name → first file that defined it
 	for _, e := range entries {
-		path := filepath.Join(dir, e.Name())
-		b, readErr := os.ReadFile(path)
-		if readErr != nil {
-			results = append(results, catalogValidateResult{file: e.Name(), err: fmt.Errorf("read %s: %w", path, readErr)})
-			continue
+		res := catalogValidateResult{file: e.file, name: e.name}
+		switch {
+		case e.readErr != nil:
+			res.err = e.readErr
+		case e.valErr != nil:
+			res.err = e.valErr
+		case e.dupOf != "":
+			res.err = fmt.Errorf("duplicate service name %q (already defined by %s)", e.name, e.dupOf)
 		}
-		svcName, valErr := manifest.ValidatePortableManifest(b)
-		if valErr != nil {
-			results = append(results, catalogValidateResult{file: e.Name(), err: valErr})
-			continue
-		}
-		if svcName == "" {
-			svcName = strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".yml")
-		}
-		if prev, dup := svcToFile[svcName]; dup {
-			results = append(results, catalogValidateResult{
-				file: e.Name(),
-				name: svcName,
-				err:  fmt.Errorf("duplicate service name %q (already defined by %s)", svcName, prev),
-			})
-			continue
-		}
-		svcToFile[svcName] = e.Name()
-		results = append(results, catalogValidateResult{file: e.Name(), name: svcName})
+		results = append(results, res)
 	}
 
 	var failed int
@@ -103,9 +89,68 @@ func (r *runner) catalogValidate(dir string) error {
 		_, _ = fmt.Fprintf(r.stdout, "ok   %s (%s)\n", res.file, res.name)
 	}
 	if failed > 0 {
-		return &usageError{fmt.Sprintf("%d of %d manifest(s) failed validation in %s", failed, len(results), dir)}
+		return agentsafety.NewUsageError(fmt.Sprintf("%d of %d manifest(s) failed validation in %s", failed, len(results), dir))
 	}
 	return nil
+}
+
+// manifestEntry is one manifest file's outcome from validateEntries: the shared
+// read → ValidatePortableManifest → stem-fallback → duplicate-detection walk,
+// with the caller-specific error formatting/typing left to the reducer. Exactly
+// one of readErr/valErr is set when the file failed; dupOf names an earlier file
+// in the same dir that already defined `name`; otherwise `data` holds the bytes.
+type manifestEntry struct {
+	file    string // base filename
+	name    string // resolved service name (filename stem when the manifest is unnamed)
+	data    []byte // file bytes (only meaningful for a valid, non-duplicate entry)
+	readErr error  // file read failure, pre-formatted as "read <path>: ..."
+	valErr  error  // ValidatePortableManifest failure (raw, unwrapped)
+	dupOf   string // earlier file that defined `name`, when this entry duplicates it
+}
+
+// validateEntries walks the top-level *.yaml/*.yml files in dir (sorted) and
+// validates each as a portable manifest, returning one manifestEntry per file.
+// It never fails fast and never wraps errors into a caller-specific type, so
+// both the fail-fast `catalog add` path (collectAndValidate) and the
+// accumulate-all `catalog validate` path reduce the identical walk differently.
+// Only the dir-read error is returned directly (the callers wrap it with their
+// own source/dir label).
+func validateEntries(dir string) ([]manifestEntry, error) {
+	entries, err := yamlEntriesIn(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manifestEntry, 0, len(entries))
+	svcToFile := map[string]string{} // service name → first file that defined it
+	for _, e := range entries {
+		me := manifestEntry{file: e.Name()}
+		path := filepath.Join(dir, e.Name())
+		b, readErr := os.ReadFile(path)
+		if readErr != nil {
+			me.readErr = fmt.Errorf("read %s: %w", path, readErr)
+			out = append(out, me)
+			continue
+		}
+		svcName, valErr := manifest.ValidatePortableManifest(b)
+		if valErr != nil {
+			me.valErr = valErr
+			out = append(out, me)
+			continue
+		}
+		if svcName == "" {
+			svcName = strings.TrimSuffix(strings.TrimSuffix(e.Name(), ".yaml"), ".yml")
+		}
+		me.name = svcName
+		if prev, dup := svcToFile[svcName]; dup {
+			me.dupOf = prev
+			out = append(out, me)
+			continue
+		}
+		svcToFile[svcName] = e.Name()
+		me.data = b
+		out = append(out, me)
+	}
+	return out, nil
 }
 
 // yamlEntriesIn returns the top-level *.yaml/*.yml directory entries directly

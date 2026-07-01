@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // writeService writes a manifest into <dir>/services/<name>.yaml, creating the
@@ -73,7 +75,7 @@ commands:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if hits.Load() != 1 {
@@ -136,8 +138,8 @@ services:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitAuth {
-		t.Fatalf("exit = %d, want %d (auth) (stderr: %s)", code, exitAuth, errb.String())
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitAuth {
+		t.Fatalf("exit = %d, want %d (auth) (stderr: %s)", code, agentsafety.ExitAuth, errb.String())
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("server hit %d times, want 0 (secret must fail before the request)", hits.Load())
@@ -169,7 +171,7 @@ commands:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"-o", "raw", "svc", "radarr", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"-o", "raw", "svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if strings.TrimSpace(out.String()) != raw {
@@ -202,7 +204,7 @@ commands:
 
 	var out, errb bytes.Buffer
 	// Override map(.id) with a filter that extracts titles instead.
-	if code := Run([]string{"--filter", "map(.title)", "svc", "radarr", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"--filter", "map(.title)", "svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()
@@ -236,8 +238,8 @@ commands:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitHTTP {
-		t.Fatalf("exit = %d, want %d (HTTP) (stderr: %s)", code, exitHTTP, errb.String())
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitHTTP {
+		t.Fatalf("exit = %d, want %d (HTTP) (stderr: %s)", code, agentsafety.ExitHTTP, errb.String())
 	}
 }
 
@@ -265,8 +267,8 @@ commands:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitDecode {
-		t.Fatalf("exit = %d, want %d (decode) (stderr: %s)", code, exitDecode, errb.String())
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitDecode {
+		t.Fatalf("exit = %d, want %d (decode) (stderr: %s)", code, agentsafety.ExitDecode, errb.String())
 	}
 }
 
@@ -295,7 +297,7 @@ commands:
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"--dry-run", "svc", "radarr", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"--dry-run", "svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if hits.Load() != 0 {
@@ -339,7 +341,7 @@ commands:
 	t.Setenv("RADARR_URL", srv.URL)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"svc", "radarr", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if hits.Load() != 1 {

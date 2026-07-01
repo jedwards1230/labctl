@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // svcManifest is a minimal no-auth PORTABLE radarr manifest used by the
@@ -30,7 +32,7 @@ func TestSvcResolvesServiceCommand(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc", "radarr", "list", "--dry-run"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"svc", "radarr", "list", "--dry-run"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "GET http://movies.example/api/v3/movie") {
@@ -46,7 +48,7 @@ func TestSvcAliasResolves(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"s", "radarr", "list", "--dry-run"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"s", "radarr", "list", "--dry-run"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "GET http://movies.example/api/v3/movie") {
@@ -62,7 +64,7 @@ func TestSvcBareListsServices(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"svc"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()
@@ -76,7 +78,7 @@ func TestSvcBareListsServices(t *testing.T) {
 func TestSvcBareEmptyConfigGraceful(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"svc"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"svc"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if got := out.String(); !strings.Contains(got, "radarr") || !strings.Contains(got, "embedded") {
@@ -94,13 +96,13 @@ func TestServiceNotRegisteredAtRoot(t *testing.T) {
 
 	// A bare service invocation at the root is now an unknown command.
 	var out, errb bytes.Buffer
-	if code := Run([]string{"radarr", "list"}, &out, &errb); code != exitUsage {
-		t.Fatalf("root service invocation exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"radarr", "list"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("root service invocation exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 
 	// Root help lists `svc` but not the service itself.
 	var hOut, hErr bytes.Buffer
-	if code := Run([]string{"--help"}, &hOut, &hErr); code != exitOK {
+	if code := Run([]string{"--help"}, &hOut, &hErr); code != agentsafety.ExitOK {
 		t.Fatalf("--help exit = %d, want 0 (stderr: %s)", code, hErr.String())
 	}
 	help := hOut.String()
@@ -117,7 +119,7 @@ func TestServiceNotRegisteredAtRoot(t *testing.T) {
 func TestRootBuiltinsStayAtRoot(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"--help"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"--help"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("--help exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	help := out.String()

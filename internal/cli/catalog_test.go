@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // TestCatalogList: `labctl catalog list` prints the embedded services with their
@@ -11,7 +13,7 @@ import (
 func TestCatalogList(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()
@@ -27,7 +29,7 @@ func TestCatalogList(t *testing.T) {
 func TestCatalogShow(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "show", "radarr"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "show", "radarr"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()
@@ -40,8 +42,8 @@ func TestCatalogShow(t *testing.T) {
 func TestCatalogShowUnknown(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir())
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "show", "nope"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"catalog", "show", "nope"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 	if !strings.Contains(errb.String(), "no embedded service") {
 		t.Fatalf("stderr = %q, want a 'no embedded service' diagnostic", errb.String())
@@ -57,7 +59,7 @@ func TestListShowsOverrideMarker(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()

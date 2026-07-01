@@ -61,7 +61,7 @@ func TestStructuredContentDegradeWhenFilteredFails(t *testing.T) {
 	tracer := noop.NewTracerProvider().Tracer("test")
 	cfg := manifest.Config{Secret: manifest.SecretResolver{Command: []string{"op", "read", "{ref}"}}}
 
-	result := executeAndRender(context.Background(), svc, c, nil, "", false, cfg, tracer, &stderr)
+	result := executeAndRender(context.Background(), svc, c, nil, "", false, false, cfg, tracer, &stderr)
 
 	if result.IsError {
 		t.Fatalf("call must still succeed when the structured builder fails; got error: %v", result.Content)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
 
@@ -33,7 +34,7 @@ func TestLintValidService(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"lint", "radarr"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"lint", "radarr"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "ok radarr") {
@@ -58,8 +59,8 @@ commands:
 
 	var out, errb bytes.Buffer
 	code := Run([]string{"lint", "broken"}, &out, &errb)
-	if code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage/config)", code, exitUsage)
+	if code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage/config)", code, agentsafety.ExitUsage)
 	}
 	if !strings.Contains(errb.String(), "strategy") {
 		t.Fatalf("stderr = %q, want a diagnostic mentioning the bad strategy", errb.String())
@@ -76,7 +77,7 @@ func TestLintFilePath(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", t.TempDir()) // empty config dir
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"lint", path}, &out, &errb); code != exitOK {
+	if code := Run([]string{"lint", path}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if !strings.Contains(out.String(), "ok "+path) {
@@ -91,8 +92,8 @@ func TestLintUnknownService(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"lint", "nope"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"lint", "nope"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 }
 
@@ -103,7 +104,7 @@ func TestListDescriptions(t *testing.T) {
 	t.Setenv("LABCTL_CONFIG_DIR", dir)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	got := out.String()

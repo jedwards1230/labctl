@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 )
 
 // writeSourceManifest writes a manifest into a source dir used by `catalog add`.
@@ -35,7 +37,7 @@ func TestCatalogAddDirSource(t *testing.T) {
 	writeSourceManifest(t, src, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	// Installed under the inferred name (the dir basename).
@@ -47,7 +49,7 @@ func TestCatalogAddDirSource(t *testing.T) {
 	// list shows the service with its catalog provenance.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("list exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("widget")) || !bytes.Contains(out.Bytes(), []byte("catalog:mycat")) {
@@ -57,7 +59,7 @@ func TestCatalogAddDirSource(t *testing.T) {
 	// `catalog installed` reports it (data to stdout).
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("installed exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("mycat")) || !bytes.Contains(out.Bytes(), []byte("dir")) {
@@ -75,7 +77,7 @@ func TestCatalogAddRejectsNonSchemaManifest(t *testing.T) {
 	writeSourceManifest(t, src, "bad.yaml", "name: bad\nbogus_key: 1\nauth: { strategy: none }\n")
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src}, &out, &errb); code == exitOK {
+	if code := Run([]string{"catalog", "add", src}, &out, &errb); code == agentsafety.ExitOK {
 		t.Fatalf("add of a non-schema manifest should fail (stderr: %s)", errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "badcat")); !os.IsNotExist(err) {
@@ -97,8 +99,8 @@ func TestCatalogAddRejectsBindingManifest(t *testing.T) {
 			writeSourceManifest(t, src, "bound.yaml", body)
 
 			var out, errb bytes.Buffer
-			if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitUsage {
-				t.Fatalf("add exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+			if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("add exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 			}
 			if _, err := os.Stat(filepath.Join(cfg, "catalogs", "boundcat")); !os.IsNotExist(err) {
 				t.Error("a binding-carrying manifest must not be installed")
@@ -114,8 +116,8 @@ func TestCatalogAddNoManifests(t *testing.T) {
 	src := t.TempDir() // empty
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src, "--name", "empty"}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", src, "--name", "empty"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("no manifests")) {
 		t.Errorf("stderr = %q, want a 'no manifests' diagnostic", errb.String())
@@ -136,13 +138,13 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	writeSourceManifest(t, srcB, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", srcA}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", srcA}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add acat exit = %d (stderr: %s)", code, errb.String())
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != exitOK {
-		t.Fatalf("add bcat exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
+	if code := Run([]string{"catalog", "add", srcB}, &out, &errb); code != agentsafety.ExitOK {
+		t.Fatalf("add bcat exit = %d, want %d (stderr: %s)", code, agentsafety.ExitOK, errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "bcat")); err != nil {
 		t.Errorf("the second catalog should now install alongside the first: %v", err)
@@ -151,7 +153,7 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	// `list` shows both qualified forms, never the bare ambiguous name.
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"list"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"list"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("list exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("acat:widget")) || !bytes.Contains(out.Bytes(), []byte("bcat:widget")) {
@@ -163,8 +165,8 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	for _, args := range [][]string{{"svc", "widget"}, {"svc", "widget", "list"}} {
 		out.Reset()
 		errb.Reset()
-		if code := Run(args, &out, &errb); code != exitUsage {
-			t.Errorf("Run(%v) exit = %d, want %d (usage) (stderr: %s)", args, code, exitUsage, errb.String())
+		if code := Run(args, &out, &errb); code != agentsafety.ExitUsage {
+			t.Errorf("Run(%v) exit = %d, want %d (usage) (stderr: %s)", args, code, agentsafety.ExitUsage, errb.String())
 		}
 		if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
 			t.Errorf("Run(%v) stderr = %q, want it to list both qualified forms", args, errb.String())
@@ -176,8 +178,8 @@ func TestCatalogAddCrossCatalogCollision(t *testing.T) {
 	bindBaseURL(t, cfg, "widget", "http://example.test")
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"svc", "acat:widget", "list", "--dry-run"}, &out, &errb); code != exitOK {
-		t.Fatalf("svc acat:widget list exit = %d, want %d (stderr: %s)", code, exitOK, errb.String())
+	if code := Run([]string{"svc", "acat:widget", "list", "--dry-run"}, &out, &errb); code != agentsafety.ExitOK {
+		t.Fatalf("svc acat:widget list exit = %d, want %d (stderr: %s)", code, agentsafety.ExitOK, errb.String())
 	}
 }
 
@@ -196,7 +198,7 @@ func TestLintDoctorQualifiedAndAmbiguousSelector(t *testing.T) {
 	for _, src := range []string{srcA, srcB} {
 		out.Reset()
 		errb.Reset()
-		if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+		if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitOK {
 			t.Fatalf("add %s exit = %d (stderr: %s)", src, code, errb.String())
 		}
 	}
@@ -205,14 +207,14 @@ func TestLintDoctorQualifiedAndAmbiguousSelector(t *testing.T) {
 		t.Run(cmd, func(t *testing.T) {
 			out.Reset()
 			errb.Reset()
-			if code := Run([]string{cmd, "acat:widget"}, &out, &errb); code != exitOK {
-				t.Fatalf("%s acat:widget exit = %d, want %d (stderr: %s)", cmd, code, exitOK, errb.String())
+			if code := Run([]string{cmd, "acat:widget"}, &out, &errb); code != agentsafety.ExitOK {
+				t.Fatalf("%s acat:widget exit = %d, want %d (stderr: %s)", cmd, code, agentsafety.ExitOK, errb.String())
 			}
 
 			out.Reset()
 			errb.Reset()
-			if code := Run([]string{cmd, "widget"}, &out, &errb); code != exitUsage {
-				t.Fatalf("%s widget exit = %d, want %d (usage) (stderr: %s)", cmd, code, exitUsage, errb.String())
+			if code := Run([]string{cmd, "widget"}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("%s widget exit = %d, want %d (usage) (stderr: %s)", cmd, code, agentsafety.ExitUsage, errb.String())
 			}
 			if !bytes.Contains(errb.Bytes(), []byte("acat:widget")) || !bytes.Contains(errb.Bytes(), []byte("bcat:widget")) {
 				t.Errorf("%s widget stderr = %q, want it to list both qualified forms", cmd, errb.String())
@@ -229,12 +231,12 @@ func TestCatalogRemove(t *testing.T) {
 	writeSourceManifest(t, src, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d (stderr: %s)", code, errb.String())
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "remove", "mycat"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "remove", "mycat"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("remove exit = %d (stderr: %s)", code, errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "mycat")); !os.IsNotExist(err) {
@@ -244,8 +246,8 @@ func TestCatalogRemove(t *testing.T) {
 	// Removing again is an error (exit 2 — *ConfigError).
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "remove", "mycat"}, &out, &errb); code != exitUsage {
-		t.Fatalf("remove-again exit = %d, want %d (usage)", code, exitUsage)
+	if code := Run([]string{"catalog", "remove", "mycat"}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("remove-again exit = %d, want %d (usage)", code, agentsafety.ExitUsage)
 	}
 }
 
@@ -258,7 +260,7 @@ func TestCatalogUpdateDirSource(t *testing.T) {
 	writeSourceManifest(t, src, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d (stderr: %s)", code, errb.String())
 	}
 
@@ -273,7 +275,7 @@ commands:
 
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "update", "mycat"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "update", "mycat"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("update exit = %d (stderr: %s)", code, errb.String())
 	}
 	got, err := os.ReadFile(filepath.Join(cfg, "catalogs", "mycat", "widget.yaml"))
@@ -298,7 +300,7 @@ func TestCatalogUpdateOpenAPISource(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
@@ -337,7 +339,7 @@ security:
 
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("update exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 
@@ -377,12 +379,12 @@ func TestCatalogUpdateBulkWithOpenAPISource(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", dirSrc, "--name", "dircat"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", dirSrc, "--name", "dircat"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add dircat exit = %d (stderr: %s)", code, errb.String())
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "apicat"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "apicat"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add apicat exit = %d (stderr: %s)", code, errb.String())
 	}
 
@@ -397,7 +399,7 @@ commands:
 
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "update"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "update"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("bulk update exit = %d, want 0 (an openapi catalog must not poison the exit code) (stderr: %s)", code, errb.String())
 	}
 
@@ -426,7 +428,7 @@ func TestCatalogUpdateOpenAPIMovedFileErrors(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", specPath, "--openapi", "--name", "petstore"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("add exit = %d (stderr: %s)", code, errb.String())
 	}
 
@@ -436,7 +438,7 @@ func TestCatalogUpdateOpenAPIMovedFileErrors(t *testing.T) {
 
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code == exitOK {
+	if code := Run([]string{"catalog", "update", "petstore"}, &out, &errb); code == agentsafety.ExitOK {
 		t.Fatalf("update should fail when the recorded local-file source no longer exists (stderr: %s)", errb.String())
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("petstore")) {
@@ -455,8 +457,8 @@ func TestCatalogAddRejectsInvalidGitURL(t *testing.T) {
 			// `--name x --` first, then the source after `--` so a leading-dash
 			// source is treated as a positional arg, not a flag, and reaches the
 			// URL validation (which rejects it).
-			if code := Run([]string{"catalog", "add", "--name", "x", "--", src}, &out, &errb); code != exitUsage {
-				t.Fatalf("exit = %d, want %d (usage) for source %q (stderr: %s)", code, exitUsage, src, errb.String())
+			if code := Run([]string{"catalog", "add", "--name", "x", "--", src}, &out, &errb); code != agentsafety.ExitUsage {
+				t.Fatalf("exit = %d, want %d (usage) for source %q (stderr: %s)", code, agentsafety.ExitUsage, src, errb.String())
 			}
 		})
 	}
@@ -490,7 +492,7 @@ func TestCatalogAddGitSource(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("LABCTL_CONFIG_DIR", cfg)
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", "file://" + repo, "--name", "gitcat"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "add", "file://" + repo, "--name", "gitcat"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("git add exit = %d, want 0 (stderr: %s)", code, errb.String())
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "catalogs", "gitcat", "widget.yaml")); err != nil {
@@ -498,7 +500,7 @@ func TestCatalogAddGitSource(t *testing.T) {
 	}
 	out.Reset()
 	errb.Reset()
-	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != exitOK {
+	if code := Run([]string{"catalog", "installed"}, &out, &errb); code != agentsafety.ExitOK {
 		t.Fatalf("installed exit = %d (stderr: %s)", code, errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte("gitcat")) || !bytes.Contains(out.Bytes(), []byte("git")) {
@@ -515,8 +517,8 @@ func TestCatalogAddInferredNameInvalid(t *testing.T) {
 	writeSourceManifest(t, src, "widget.yaml", portableWidget)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != exitUsage {
-		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, exitUsage, errb.String())
+	if code := Run([]string{"catalog", "add", src}, &out, &errb); code != agentsafety.ExitUsage {
+		t.Fatalf("exit = %d, want %d (usage) (stderr: %s)", code, agentsafety.ExitUsage, errb.String())
 	}
 	if !bytes.Contains(errb.Bytes(), []byte("--name")) {
 		t.Errorf("stderr = %q, want guidance to pass --name", errb.String())

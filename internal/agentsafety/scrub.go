@@ -1,4 +1,15 @@
-package secret
+// Package agentsafety consolidates labctl's agent-safety machinery — secret
+// scrubbing, dry-run preview rendering, the exit-code taxonomy + classifier,
+// the tool-annotation policy, and mutation audit logging — into one SDK-light
+// package shared by the engine, the CLI, and the MCP server.
+//
+// It is deliberately unopinionated: it renders, classifies, and records, but it
+// gates nothing. Write-confirmation, elicitation, and read-only enforcement are
+// NOT part of this package (see CLAUDE.md's "unopinionated executor" principle).
+//
+// Import layering: agentsafety may import transport/secret/manifest/command and
+// the MCP SDK, but none of engine/cli/mcpserver — those import agentsafety.
+package agentsafety
 
 import (
 	"sort"
@@ -56,14 +67,4 @@ func (s *Scrubber) Scrub(text string) string {
 		text = strings.ReplaceAll(text, v, redactedPlaceholder)
 	}
 	return text
-}
-
-// Func returns a redaction function suitable for the transports' Redact field,
-// or nil when the scrubber holds no values (so callers can leave Redact nil and
-// take the identity path without paying a per-call closure).
-func (s *Scrubber) Func() func(string) string {
-	if s == nil || len(s.values) == 0 {
-		return nil
-	}
-	return s.Scrub
 }

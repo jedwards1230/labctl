@@ -11,7 +11,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/itchyny/gojq"
+	"github.com/jedwards1230/labctl/internal/filter"
 	"github.com/jedwards1230/labctl/internal/manifest"
 )
 
@@ -35,7 +35,7 @@ func Render(body []byte, out manifest.Output, opts Options, w io.Writer) error {
 		return err
 	}
 
-	filter := firstNonEmpty(opts.Filter, out.DefaultFilter, ".")
+	filterExpr := firstNonEmpty(opts.Filter, out.DefaultFilter, ".")
 
 	// Decode the response body. XML responses are decoded to a map[string]any
 	// tree first so the gojq filter can consume them identically to JSON.
@@ -59,19 +59,19 @@ func Render(body []byte, out manifest.Output, opts Options, w io.Writer) error {
 		return fmt.Errorf("decode response as %s: %w", strings.ToUpper(codec), decodeErr)
 	}
 
-	query, err := gojq.Parse(filter)
+	query, err := filter.Compile(filterExpr)
 	if err != nil {
-		return fmt.Errorf("parse filter %q: %w", filter, err)
+		return fmt.Errorf("parse filter %q: %w", filterExpr, err)
 	}
 
 	iter := query.Run(input)
 	for {
-		v, ok := iter.Next()
+		v, ferr, ok := iter.Next()
 		if !ok {
 			break
 		}
-		if err, ok := v.(error); ok {
-			return fmt.Errorf("filter: %w", err)
+		if ferr != nil {
+			return fmt.Errorf("filter: %w", ferr)
 		}
 		if err := renderValue(v, mode, w); err != nil {
 			return err
@@ -103,7 +103,7 @@ func Filtered(body []byte, out manifest.Output, opts Options) (any, error) {
 		return v, nil
 	}
 
-	filter := firstNonEmpty(opts.Filter, out.DefaultFilter, ".")
+	filterExpr := firstNonEmpty(opts.Filter, out.DefaultFilter, ".")
 
 	var input any
 	var decodeErr error
@@ -123,20 +123,20 @@ func Filtered(body []byte, out manifest.Output, opts Options) (any, error) {
 		return nil, fmt.Errorf("decode response as %s: %w", strings.ToUpper(codec), decodeErr)
 	}
 
-	query, err := gojq.Parse(filter)
+	query, err := filter.Compile(filterExpr)
 	if err != nil {
-		return nil, fmt.Errorf("parse filter %q: %w", filter, err)
+		return nil, fmt.Errorf("parse filter %q: %w", filterExpr, err)
 	}
 
 	iter := query.Run(input)
 	var results []any
 	for {
-		v, ok := iter.Next()
+		v, ferr, ok := iter.Next()
 		if !ok {
 			break
 		}
-		if err, ok := v.(error); ok {
-			return nil, fmt.Errorf("filter: %w", err)
+		if ferr != nil {
+			return nil, fmt.Errorf("filter: %w", ferr)
 		}
 		results = append(results, v)
 	}

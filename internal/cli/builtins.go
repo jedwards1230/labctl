@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jedwards1230/labctl/internal/agentsafety"
 	"github.com/jedwards1230/labctl/internal/command"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/mcpserver"
@@ -259,19 +260,22 @@ func (r *runner) cmdMCP() *cobra.Command {
 				return fmt.Errorf("no services configured; add manifests under %s/services/", manifest.ConfigDir())
 			}
 			if err := mcpserver.ValidateServices(r.loaded, services); err != nil {
-				return &usageError{err.Error()}
+				return agentsafety.NewUsageError(err.Error())
 			}
 			if authTokenFile != "" && httpAddr == "" {
-				return &usageError{"--auth-token-file has no effect without --http (bearer auth only applies to the streamable-HTTP transport)"}
+				return agentsafety.NewUsageError("--auth-token-file has no effect without --http (bearer auth only applies to the streamable-HTTP transport)")
 			}
 			if allowUnauthenticated && httpAddr == "" {
-				return &usageError{"--allow-unauthenticated has no effect without --http (the stdio transport has no bearer-auth gate to opt out of)"}
+				return agentsafety.NewUsageError("--allow-unauthenticated has no effect without --http (the stdio transport has no bearer-auth gate to opt out of)")
 			}
 			opts := mcpserver.Options{ReadOnly: readOnly, Services: services}
 			if httpAddr != "" {
 				authToken, err := resolveHTTPAuth(httpAddr, authTokenFile, allowUnauthenticated)
 				if err != nil {
-					return &usageError{err.Error()}
+					// A bad --auth-token-file or a RequireAuth policy refusal is
+					// operator misconfiguration → usage error (exit 2), matching
+					// ValidateServices above.
+					return agentsafety.NewUsageError(err.Error())
 				}
 				return mcpserver.ServeHTTP(cmd.Context(), httpAddr, r.loaded, r.config, Version, r.tracer, r.stderr, opts, authToken)
 			}
