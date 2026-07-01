@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/itchyny/gojq"
 	"github.com/jedwards1230/labctl/internal/auth"
 	"github.com/jedwards1230/labctl/internal/command"
+	"github.com/jedwards1230/labctl/internal/filter"
 	"github.com/jedwards1230/labctl/internal/manifest"
 	"github.com/jedwards1230/labctl/internal/secret"
 	"github.com/jedwards1230/labctl/internal/template"
@@ -529,23 +529,22 @@ func extractData(body []byte, dataPath string) ([]any, error) {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	filter := "."
+	filterExpr := "."
 	if dataPath != "" {
-		filter = dataPath
+		filterExpr = dataPath
 	}
 
-	q, err := gojq.Parse(filter)
+	q, err := filter.Compile(filterExpr)
 	if err != nil {
-		return nil, fmt.Errorf("parse data filter %q: %w", filter, err)
+		return nil, fmt.Errorf("parse data filter %q: %w", filterExpr, err)
 	}
 
-	iter := q.Run(parsed)
-	v, ok := iter.Next()
+	v, ferr, ok := q.Run(parsed).Next()
 	if !ok {
 		return nil, nil
 	}
-	if errV, ok := v.(error); ok {
-		return nil, errV
+	if ferr != nil {
+		return nil, ferr
 	}
 
 	switch tv := v.(type) {
@@ -556,12 +555,12 @@ func extractData(body []byte, dataPath string) ([]any, error) {
 		// configured and the value is explicitly null (e.g. {"data":null}), that
 		// is almost certainly a server bug — returning empty would silently stop
 		// pagination instead of surfacing the problem.
-		if filter != "." {
-			return nil, fmt.Errorf("data path %q: value is null (expected array)", filter)
+		if filterExpr != "." {
+			return nil, fmt.Errorf("data path %q: value is null (expected array)", filterExpr)
 		}
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("data path %q: expected array, got %T", filter, v)
+		return nil, fmt.Errorf("data path %q: expected array, got %T", filterExpr, v)
 	}
 }
 
@@ -577,18 +576,17 @@ func extractScalar(body []byte, jqPath string) (string, error) {
 		return "", fmt.Errorf("unmarshal response: %w", err)
 	}
 
-	q, err := gojq.Parse(jqPath)
+	q, err := filter.Compile(jqPath)
 	if err != nil {
 		return "", fmt.Errorf("parse next-cursor filter %q: %w", jqPath, err)
 	}
 
-	iter := q.Run(parsed)
-	v, ok := iter.Next()
+	v, ferr, ok := q.Run(parsed).Next()
 	if !ok {
 		return "", nil
 	}
-	if errV, ok := v.(error); ok {
-		return "", errV
+	if ferr != nil {
+		return "", ferr
 	}
 
 	switch tv := v.(type) {
