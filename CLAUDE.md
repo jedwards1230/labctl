@@ -65,7 +65,10 @@ with on-disk token cache; OpenAPI inference via libopenapi (`spec:` + `spec_filt
 composed multi-step pipelines (`steps:` with extract/when/confirm/on_error); MCP
 server (`labctl mcp`) over stdio (default) or streamable-HTTP (`--http :9000`,
 MCP endpoint at `/mcp`, `GET /healthz` probe — for in-cluster gateway federation).
-The `truenas` and `sunshine` manifests execute fully.
+Secure by default: a `--http` bind to a non-loopback address refuses to start
+without a bearer token (`LABCTL_MCP_AUTH_TOKEN` or `--auth-token-file`) unless
+`--allow-unauthenticated` explicitly opts out; a loopback bind (127.0.0.1/::1/
+localhost) needs no token. The `truenas` and `sunshine` manifests execute fully.
 
 Embedded catalog (done): 15 portable manifests (top-level `catalog/`) are
 compiled into the binary via `//go:embed`, so consumers no longer vendor copies.

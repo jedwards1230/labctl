@@ -27,12 +27,18 @@ mcp:
   services: []
   # Optional bearer-token auth on the /mcp endpoint. This is TRANSPORT-LAYER
   # access control (who may reach the endpoint at all) — an app-layer boundary
-  # that complements networkPolicy, NOT per-tool policy gating. Default off =
-  # no app-layer auth (unchanged, backward compatible). When enabled the token
-  # is injected as the LABCTL_MCP_AUTH_TOKEN env var; callers must then send
-  # `Authorization: Bearer <token>`. GET /healthz always stays unauthenticated.
-  # Pick exactly one token source (existingSecret or onePasswordItem); enabling
-  # without a source is a hard render error (fail-closed).
+  # that complements networkPolicy, NOT per-tool policy gating. When enabled
+  # the token is injected as the LABCTL_MCP_AUTH_TOKEN env var; callers must
+  # then send `Authorization: Bearer <token>`. GET /healthz always stays
+  # unauthenticated. Pick exactly one token source (existingSecret or
+  # onePasswordItem); enabling without a source is a hard render error
+  # (fail-closed).
+  #
+  # `mcp.http` (above) is a bare-port bind (":9000") — non-loopback, since a
+  # Deployment must accept traffic on the pod network — so labctl's
+  # secure-by-default policy requires ONE of auth.enabled or
+  # allowUnauthenticated below; leaving both at their defaults makes the
+  # container refuse to start (intentional fail-closed, not a bug).
   auth:
     enabled: false
     existingSecret:
@@ -43,6 +49,11 @@ mcp:
       # the bearer token. e.g. vaults/homelab/items/k8s-mcp-gateway-labctl-mcp-auth
       itemPath: ""
       key: token
+  # Explicit opt-out of labctl's secure-by-default requirement that a
+  # non-loopback --http bind have an auth token configured. Only set this when
+  # network-layer controls (e.g. networkPolicy.enabled below, or an upstream
+  # gateway) are the sole intended access boundary. Default false.
+  allowUnauthenticated: false
 
 # Files rendered into LABCTL_CONFIG_DIR (/config) via a ConfigMap.
 # profileYaml is the per-environment binding (base_url + op:// secret refs);

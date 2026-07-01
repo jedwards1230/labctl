@@ -3,6 +3,8 @@ package secret
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,6 +33,44 @@ func TestResolveRead(t *testing.T) {
 	}
 	if strings.Join(gotArgv, " ") != "op read op://vault/Radarr/api_key" {
 		t.Fatalf("argv = %v", gotArgv)
+	}
+}
+
+// TestResolvedBinary_AbsolutePath verifies ResolvedBinary resolves an
+// absolute command[0] path without consulting $PATH (exec.LookPath returns an
+// absolute file unchanged once it confirms it's executable).
+func TestResolvedBinary_AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-op")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho hi\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newOnePassword(manifest.ProviderConfig{Scheme: "op", Command: []string{bin, "read", "{ref}"}}, nil)
+	got, err := p.ResolvedBinary()
+	if err != nil {
+		t.Fatalf("ResolvedBinary: %v", err)
+	}
+	if got != bin {
+		t.Fatalf("ResolvedBinary() = %q, want %q", got, bin)
+	}
+}
+
+// TestResolvedBinary_NotOnPath verifies a command[0] that resolves to nothing
+// on $PATH surfaces an error (visibility only — no invocation is attempted).
+func TestResolvedBinary_NotOnPath(t *testing.T) {
+	p := newOnePassword(manifest.ProviderConfig{Scheme: "op", Command: []string{"labctl-definitely-not-a-real-binary", "read", "{ref}"}}, nil)
+	if _, err := p.ResolvedBinary(); err == nil {
+		t.Fatal("expected an error for a binary not on PATH")
+	}
+}
+
+// TestResolvedBinary_EmptyCommand verifies an empty resolver command is
+// reported as an error rather than panicking.
+func TestResolvedBinary_EmptyCommand(t *testing.T) {
+	p := &OnePassword{command: nil}
+	if _, err := p.ResolvedBinary(); err == nil {
+		t.Fatal("expected an error for an empty resolver command")
 	}
 }
 

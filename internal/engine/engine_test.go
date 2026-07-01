@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,6 +85,46 @@ func TestExecuteDryRunNoNetwork(t *testing.T) {
 	}
 	if !strings.Contains(res.DryRunMsg, "X-Api-Key: <redacted>") {
 		t.Fatalf("dry-run should preview a redacted auth header: %q", res.DryRunMsg)
+	}
+}
+
+// TestExecuteDryRunSurfacesResolverBinaryPath verifies --dry-run appends the
+// resolved absolute path of the secrets-resolver binary (e.g. "op") to the
+// preview output, so an operator can audit exactly which binary would be
+// trusted with the service-account token before ever running a real command.
+// No invocation happens — the resolver command here points at a real,
+// executable file on disk (never run) so the test is deterministic
+// regardless of whether a real `op` binary is on the host $PATH.
+func TestExecuteDryRunSurfacesResolverBinaryPath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-op")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho should-never-run\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := newService("https://movies.example.com")
+	cmds := command.FromManifest(svc)
+	failOp := func([]string) (string, error) { return "", errBoom } // dry-run must never invoke this
+	res, err := Execute(context.Background(), Request{
+		Config: manifest.Config{Secrets: manifest.SecretsConfig{
+			Providers: map[string]manifest.ProviderConfig{
+				"onepassword": {Scheme: "op", Command: []string{bin, "read", "{ref}"}},
+			},
+		}},
+		Service: svc,
+		Command: cmds["list"],
+		Runner:  failOp,
+		Flags:   Flags{DryRun: true},
+		Getenv:  func(string) string { return "" },
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.DryRunMsg, bin) {
+		t.Fatalf("dry-run msg = %q, want it to contain the resolved resolver binary path %q", res.DryRunMsg, bin)
+	}
+	if !strings.Contains(res.DryRunMsg, "secrets resolver (op)") {
+		t.Fatalf("dry-run msg = %q, want a labeled secrets-resolver diagnostic line", res.DryRunMsg)
 	}
 }
 

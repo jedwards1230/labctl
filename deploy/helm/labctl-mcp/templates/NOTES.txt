@@ -8,12 +8,19 @@ Tool exposure:
   services  : {{ if .Values.mcp.services }}{{ join ", " .Values.mcp.services }}{{ else }}all{{ end }}
 
 Endpoint auth (transport-layer):
-  /mcp     : {{ if .Values.mcp.auth.enabled }}bearer token required (Authorization: Bearer <token>){{ else }}none — network reachability is the only boundary{{ end }}
+  /mcp     : {{ if .Values.mcp.auth.enabled }}bearer token required (Authorization: Bearer <token>){{ else if .Values.mcp.allowUnauthenticated }}none — mcp.allowUnauthenticated explicitly opted out{{ else }}MISCONFIGURED — see WARNING below{{ end }}
   /healthz : open (liveness/readiness probe — never authenticated)
-{{- if not .Values.mcp.auth.enabled }}
+{{- if and (not .Values.mcp.auth.enabled) (not .Values.mcp.allowUnauthenticated) }}
 
-NOTE: /mcp has no app-layer auth. Enable mcp.auth.enabled (with a token source)
-and/or networkPolicy.enabled to restrict who can reach it.
+WARNING: mcp.http (":9000") is a non-loopback bind with neither mcp.auth.enabled
+nor mcp.allowUnauthenticated set. labctl mcp refuses to start in this
+configuration (secure by default) — the container will CrashLoop. Set
+mcp.auth.enabled (with a token source) to require bearer auth, or
+mcp.allowUnauthenticated to explicitly accept an unauthenticated deploy.
+{{- else if .Values.mcp.allowUnauthenticated }}
+
+NOTE: /mcp has no app-layer auth (mcp.allowUnauthenticated=true). Consider
+networkPolicy.enabled to restrict who can reach it.
 {{- end }}
 
 {{- $secretName := include "labctl-mcp.secretName" . }}

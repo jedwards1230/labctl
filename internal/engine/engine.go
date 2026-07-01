@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -100,19 +101,54 @@ func Execute(ctx context.Context, req Request, stderr io.Writer) (*Result, error
 	tmplEnv := template.Env{Vars: vars, Args: req.Args, Secrets: res, Getenv: getenv}
 
 	// Composed pipeline takes precedence over the transport switch.
+	var result *Result
 	if len(cmd.Steps) > 0 {
-		return executePipeline(ctx, req, svc, cmd, vars, tmplEnv, stderr)
+		result, err = executePipeline(ctx, req, svc, cmd, vars, tmplEnv, stderr)
+	} else {
+		// Dispatch based on transport kind.
+		switch transportKind {
+		case "", "http":
+			result, err = executeHTTP(ctx, req, svc, cmd, ep, tmplEnv, stderr)
+		case "jsonrpc-ws":
+			result, err = executeJSONRPCWS(ctx, req, svc, cmd, ep, tmplEnv, stderr)
+		default:
+			return nil, fmt.Errorf("transport %q is not yet implemented", transportKind)
+		}
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	// Dispatch based on transport kind.
-	switch transportKind {
-	case "", "http":
-		return executeHTTP(ctx, req, svc, cmd, ep, tmplEnv, stderr)
-	case "jsonrpc-ws":
-		return executeJSONRPCWS(ctx, req, svc, cmd, ep, tmplEnv, stderr)
-	default:
-		return nil, fmt.Errorf("transport %q is not yet implemented", transportKind)
+	// --dry-run audit visibility: append which secrets-resolver binary (e.g.
+	// "op") would be trusted with credentials, resolved via exec.LookPath only
+	// (no invocation, no secret resolution — see ResolvedSecretBinaries). Only
+	// meaningful when the dry-run preview was actually produced.
+	if req.Flags.DryRun && result != nil && result.DryRunMsg != "" {
+		result.DryRunMsg += secretResolverDiagnostic(res)
 	}
+	return result, nil
+}
+
+// secretResolverDiagnostic renders the --dry-run audit lines for every
+// secrets-provider binary the service's declared secrets could shell out to.
+// Empty when the resolver exposes none (no secrets configured, or no provider
+// implements the optional lookup). Deterministic ordering (sorted by scheme)
+// so dry-run output is stable across runs.
+func secretResolverDiagnostic(res *secret.Resolver) string {
+	binaries := res.ResolvedSecretBinaries()
+	if len(binaries) == 0 {
+		return ""
+	}
+	schemes := make([]string, 0, len(binaries))
+	for scheme := range binaries {
+		schemes = append(schemes, scheme)
+	}
+	sort.Strings(schemes)
+	var b strings.Builder
+	for _, scheme := range schemes {
+		fmt.Fprintf(&b, "# secrets resolver (%s): %s\n", scheme, binaries[scheme])
+	}
+	return b.String()
 }
 
 // executeHTTP handles the http transport path.
