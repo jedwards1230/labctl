@@ -9,7 +9,9 @@ import (
 
 // MutationRecord is one structured audit record emitted per WRITE call from the
 // MCP boundary (the agent-facing face). It is additive diagnostics — never a
-// gate — and carries no live secret: Params is redacted via RedactSecretTokens.
+// gate. Params is passed through RedactSecretTokens, which masks {secret.X}
+// template references only; it is not a blanket scrub of arbitrary resolved
+// secret values, so callers should keep resolved credentials out of Params.
 type MutationRecord struct {
 	Time    time.Time `json:"time"`             // set by LogMutation
 	Caller  string    `json:"caller"`           // best-effort; "unknown" until caller-identity plumbing exists
@@ -20,7 +22,7 @@ type MutationRecord struct {
 	Outcome string    `json:"outcome"`          // "ok" | "error" | "dry-run"
 	Class   string    `json:"class,omitempty"`  // ClassName on error, else ""
 	Status  int       `json:"status,omitempty"` // http status when known (error path)
-	Params  string    `json:"params,omitempty"` // best-effort, REDACTED (never a live secret)
+	Params  string    `json:"params,omitempty"` // best-effort; {secret.X} template refs masked (not arbitrary secret values)
 }
 
 // LogMutation marshals rec to a single JSON line on w. It stamps rec.Time (if
