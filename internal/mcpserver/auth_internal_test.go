@@ -4,8 +4,10 @@ import "testing"
 
 // TestIsLoopbackAddr pins the loopback-classification rules RequireAuth relies
 // on: literal loopback IPs and "localhost" are loopback; a bare port (binds
-// every interface) and any other hostname/IP are treated as non-loopback
-// (fail closed — no DNS lookups are performed).
+// every interface), any other hostname/IP, and any malformed address
+// (net.SplitHostPort failure) are treated as non-loopback (fail closed — no
+// DNS lookups are performed, and a malformed address is never given the
+// benefit of the doubt).
 func TestIsLoopbackAddr(t *testing.T) {
 	cases := []struct {
 		addr string
@@ -21,6 +23,13 @@ func TestIsLoopbackAddr(t *testing.T) {
 		{"192.168.1.5:9000", false},
 		{"example.com:9000", false}, // arbitrary hostname: no DNS lookup, fail closed
 		{"not-a-valid-addr", false}, // malformed (no colon): fail closed
+		// Regression: a malformed address that LOOKS like a loopback IP/host
+		// with the port typo'd off must NOT be classified as loopback — that
+		// would silently skip the auth requirement for exactly the operator
+		// mistake RequireAuth exists to catch.
+		{"127.0.0.1", false}, // missing port
+		{"localhost", false}, // missing port
+		{"[::1]", false},     // missing port, malformed bracket form
 	}
 	for _, tc := range cases {
 		t.Run(tc.addr, func(t *testing.T) {

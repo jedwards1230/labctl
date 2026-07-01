@@ -47,13 +47,19 @@ func ResolveAuthToken(tokenFile string) (string, error) {
 // only literal loopback IPs and the "localhost" literal are recognized as
 // loopback, so an arbitrary hostname is conservatively treated as
 // non-loopback (fail closed).
+//
+// A malformed address (net.SplitHostPort fails — e.g. a bare host with no
+// port, such as an operator typo of "127.0.0.1" instead of "127.0.0.1:9000")
+// is ALSO treated as non-loopback, never as loopback. Naively re-parsing the
+// whole string as a host would misclassify exactly that typo as loopback
+// (net.ParseIP("127.0.0.1") succeeds and IsLoopback() is true) and silently
+// skip the auth requirement — the opposite of fail-closed. An address this
+// ambiguous can't be trusted to be loopback, so it isn't; the resulting
+// RequireAuth error is what surfaces the typo to the operator.
 func isLoopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		// Not a well-formed host:port (e.g. missing the colon) — treat the whole
-		// value as the host so a malformed --http address still fails closed
-		// rather than silently skipping the auth requirement.
-		host = addr
+		return false
 	}
 	if host == "" {
 		return false // bare ":9000" binds every interface, not just loopback
@@ -80,7 +86,7 @@ func RequireAuth(addr, authToken string, allowUnauthenticated bool) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"labctl mcp --http %s binds a non-loopback address with no auth configured; "+
+		"labctl mcp --http %s binds a non-loopback address (e.g., bare :PORT binds all interfaces) with no auth configured; "+
 			"set %s or pass --auth-token-file <path> to require bearer auth on /mcp, "+
 			"or pass --allow-unauthenticated to explicitly accept an unauthenticated non-loopback server (not recommended outside a trusted network)",
 		addr, AuthTokenEnv,
