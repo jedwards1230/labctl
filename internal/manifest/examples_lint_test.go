@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jedwards1230/labctl/catalog"
 )
 
 // examplesDir resolves the repo's examples/ config dir relative to this test
@@ -47,7 +49,7 @@ func TestExamplesLoadAndValidate(t *testing.T) {
 	}
 
 	// examples/ ships no local services, so every service is the embedded catalog.
-	want := CatalogNames()
+	want := catalog.Names()
 	if len(loaded.Services) != len(want) {
 		t.Fatalf("loaded %d services, want %d embedded (%v)", len(loaded.Services), len(want), want)
 	}

@@ -13,18 +13,15 @@ import (
 // service present only in the catalog is still available. These helpers expose
 // the catalog directly, for `labctl catalog list/show` and tests.
 
-// CatalogNames returns the embedded catalog's service names, sorted.
-func CatalogNames() []string { return catalog.Names() }
-
 // CatalogManifest returns the raw embedded YAML for a service name (used by
 // `labctl catalog show` to dump a manifest for forking into a local override).
 func CatalogManifest(name string) ([]byte, bool) { return catalog.Manifest(name) }
 
-// CatalogService decodes and structurally validates one embedded manifest. It
+// catalogService decodes and structurally validates one embedded manifest. It
 // applies no global defaults and no profile binding — it is the manifest exactly
 // as shipped. Relative spec: paths (none today) have no config root, so spec
 // inference is skipped.
-func CatalogService(name string) (*Service, error) {
+func catalogService(name string) (*Service, error) {
 	data, ok := catalog.Manifest(name)
 	if !ok {
 		return nil, fmt.Errorf("no embedded service %q", name)
@@ -45,7 +42,7 @@ func CatalogServices() ([]*Service, error) {
 	names := catalog.Names()
 	out := make([]*Service, 0, len(names))
 	for _, n := range names {
-		svc, err := CatalogService(n)
+		svc, err := catalogService(n)
 		if err != nil {
 			return nil, err
 		}

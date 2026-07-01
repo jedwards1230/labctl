@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jedwards1230/labctl/catalog"
 )
 
 func writeConfig(t *testing.T, dir, body string) {
@@ -91,8 +93,8 @@ func TestLoadMissingDir(t *testing.T) {
 		t.Fatalf("missing dir should not error: %v", err)
 	}
 	// A missing config dir still yields the embedded catalog (no local overrides).
-	if len(l.Services) != len(CatalogNames()) {
-		t.Errorf("missing dir loaded %d services, want %d embedded", len(l.Services), len(CatalogNames()))
+	if len(l.Services) != len(catalog.Names()) {
+		t.Errorf("missing dir loaded %d services, want %d embedded", len(l.Services), len(catalog.Names()))
 	}
 	if svc, ok := l.Services["radarr"]; !ok {
 		t.Error("embedded radarr should be available with no config dir")

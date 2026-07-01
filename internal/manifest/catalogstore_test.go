@@ -51,8 +51,8 @@ func TestInstallCatalogAndLoadProvenance(t *testing.T) {
 	if got := loaded.OriginOf("widget"); got != catalogOrigin("mycat") {
 		t.Errorf("widget origin = %q, want %q", got, catalogOrigin("mycat"))
 	}
-	if got := loaded.OriginOf("widget"); !got.IsCatalog() || got.CatalogName() != "mycat" {
-		t.Errorf("origin helpers: IsCatalog=%v CatalogName=%q", got.IsCatalog(), got.CatalogName())
+	if got := loaded.OriginOf("widget"); !got.IsCatalog() {
+		t.Errorf("origin helpers: IsCatalog=%v, want true", got.IsCatalog())
 	}
 	// The embedded floor still loads for everything the catalog didn't touch.
 	if got := loaded.OriginOf("radarr"); got != OriginEmbedded {
