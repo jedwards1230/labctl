@@ -374,16 +374,19 @@ changes.
   ```
   Absent `ui:`, the View auto-detects: an array of objects renders as a table, a
   single object as a record, anything else as a collapsible tree/JSON view.
-  The streamable-HTTP `/mcp` endpoint is unauthenticated by default — network
-  reachability is the access boundary. Two opt-in boundaries restrict who can
-  reach it (both default-off, so the default behavior is unchanged): an optional
-  bearer token (`labctl mcp --http :9000 --auth-token-file <path>`, or the
-  `LABCTL_MCP_AUTH_TOKEN` env var) that requires `Authorization: Bearer <token>`
-  on `/mcp` (constant-time compared; `401` otherwise — `GET /healthz` stays open),
-  and the [`labctl-mcp` chart](deploy/helm/labctl-mcp)'s opt-in NetworkPolicy
-  (`networkPolicy.enabled`). Both are *transport-layer access control* (who may
-  reach the endpoint at all), not per-tool policy gating — labctl stays an
-  unopinionated executor.
+  Secure by default: a `--http` bind to a **loopback** address (`127.0.0.1`,
+  `::1`, `localhost`) is unauthenticated, matching the CLI's implicit
+  local-trust model — network reachability is the access boundary there. A
+  `--http` bind to any **non-loopback** address (including a bare `:PORT`,
+  which binds every interface) *refuses to start* unless a bearer token is
+  configured: `--auth-token-file <path>` or the `LABCTL_MCP_AUTH_TOKEN` env
+  var, either of which requires `Authorization: Bearer <token>` on `/mcp`
+  (constant-time compared; `401` otherwise — `GET /healthz` stays open).
+  Pass `--allow-unauthenticated` to explicitly opt out (not recommended
+  outside a trusted network). The [`labctl-mcp` chart](deploy/helm/labctl-mcp)
+  additionally offers an opt-in NetworkPolicy (`networkPolicy.enabled`). All of
+  these are *transport-layer access control* (who may reach the endpoint at
+  all), not per-tool policy gating — labctl stays an unopinionated executor.
 - **Secrets are references, resolved at call time.** A manifest stores
   `op://vault/item/field`, never a value. A ref is routed to a provider by its
   URI scheme (`op://` → the 1Password provider; the seam is open for `aws://`,

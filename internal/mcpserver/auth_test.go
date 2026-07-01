@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,6 +106,87 @@ func TestResolveAuthToken_FileWinsOverEnv(t *testing.T) {
 	}
 	if got != "file-secret" {
 		t.Errorf("token = %q, want \"file-secret\" (file must win over env)", got)
+	}
+}
+
+// ── RequireAuth (secure-by-default policy gate) ───────────────────────────────
+
+// TestRequireAuth covers the four required scenarios for the secure-by-default
+// policy: a non-loopback --http bind refuses to start without a token unless
+// --allow-unauthenticated is passed; a configured token or a loopback bind is
+// always allowed.
+func TestRequireAuth(t *testing.T) {
+	cases := []struct {
+		name                 string
+		addr                 string
+		authToken            string
+		allowUnauthenticated bool
+		wantErr              bool
+	}{
+		{
+			name:    "non-loopback, no token, no opt-out -> refused",
+			addr:    ":9000",
+			wantErr: true,
+		},
+		{
+			name:                 "non-loopback, no token, opt-out -> starts",
+			addr:                 ":9000",
+			allowUnauthenticated: true,
+			wantErr:              false,
+		},
+		{
+			name:      "non-loopback, token configured -> starts (no opt-out needed)",
+			addr:      "0.0.0.0:9000",
+			authToken: "secret",
+			wantErr:   false,
+		},
+		{
+			name:    "loopback, no token -> starts (unchanged behavior)",
+			addr:    "127.0.0.1:9000",
+			wantErr: false,
+		},
+		{
+			name:    "loopback ipv6, no token -> starts",
+			addr:    "[::1]:9000",
+			wantErr: false,
+		},
+		{
+			name:    "localhost, no token -> starts",
+			addr:    "localhost:9000",
+			wantErr: false,
+		},
+		{
+			name:    "non-loopback hostname, no token, no opt-out -> refused",
+			addr:    "0.0.0.0:9000",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := mcpserver.RequireAuth(tc.addr, tc.authToken, tc.allowUnauthenticated)
+			if tc.wantErr && err == nil {
+				t.Fatalf("RequireAuth(%q, %q, %v) = nil, want an error", tc.addr, tc.authToken, tc.allowUnauthenticated)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("RequireAuth(%q, %q, %v) = %v, want nil", tc.addr, tc.authToken, tc.allowUnauthenticated, err)
+			}
+		})
+	}
+}
+
+// TestRequireAuth_ErrorMessageIsActionable checks the refusal error names both
+// ways to configure a token and the opt-out flag, so an operator can fix it
+// without reading source.
+func TestRequireAuth_ErrorMessageIsActionable(t *testing.T) {
+	err := mcpserver.RequireAuth(":9000", "", false)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	msg := err.Error()
+	for _, want := range []string{mcpserver.AuthTokenEnv, "--auth-token-file", "--allow-unauthenticated"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message %q does not mention %q", msg, want)
+		}
 	}
 }
 

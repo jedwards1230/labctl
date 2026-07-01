@@ -44,6 +44,9 @@ spec:
             {{- if .Values.mcp.readOnly }}
             - --read-only
             {{- end }}
+            {{- if .Values.mcp.allowUnauthenticated }}
+            - --allow-unauthenticated
+            {{- end }}
             {{- range .Values.mcp.services }}
             - --service
             - {{ . | quote }}
