@@ -38,6 +38,7 @@ internal/
   transport/  http (curl-equivalent) + jsonrpc-ws; error extraction, typed errors→exit codes
   output/     gojq filter + render modes (json/raw/scalar)
   engine/     resolve template→endpoint→auth→transport; pagination (none/fixed-query/cursor/page-number/page-until-short)
+  agentsafety/ shared agent-safety layer: secret scrubber, dry-run preview render, exit-code taxonomy+classifier, tool-annotation policy, mutation audit log (renders/classifies/records — gates nothing)
   telemetry/  optional OpenTelemetry tracing (no-op unless OTEL_* env configures it)
   cli/        cobra tree, dynamic per-service registration, builtins, exit-code mapping
 ```
@@ -48,7 +49,13 @@ per invocation; the now-shipped MCP server reuses the same provider and emits
 one span per tool call (`<svc>_<command>`). Metrics remain future work.
 
 **Two faces, one executor**: the CLI and the MCP server (stdio or
-streamable-HTTP) both drive `engine.Execute`, so behavior is identical.
+streamable-HTTP) both drive `engine.Execute`, so behavior is identical. The MCP
+face reaches parity with the CLI on agent-safety: every tool takes an optional
+`dry_run` boolean (previews the request, no network — reusing the CLI's
+preview/redaction); error results are structured (`IsError` + text fallback +
+`StructuredContent {error,class,status}` from the shared exit-code classifier);
+and each WRITE call emits one JSON mutation audit record to stderr. It still
+gates nothing — no write-confirmation or elicitation (a later PR).
 
 ## Status / roadmap
 
