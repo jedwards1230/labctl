@@ -8,7 +8,7 @@
 # container is network-reachable (e.g. federated by an MCP gateway). Override
 # CMD for stdio or other subcommands.
 
-FROM golang:1.25-trixie AS build
+FROM golang:1.26-trixie AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
